@@ -50,9 +50,9 @@ Then a 5-minute load test (`scripts/gpu-burn.py`) passed, with no retrain or bus
 - Kernel parameter: add `pcie_port_pm=off`
 - Test the card alone in the top slot to rule out the card itself
 
-## Power limit service fails with two GPUs
+## Power limit service fails
 
-See [04-multi-gpu.md](04-multi-gpu.md#1-power-limit-target-one-card). `nvidia-smi -pl` without `-i` targets every card.
+`journalctl -u nvidia-power-limit` names the card. Usual causes: a limit outside that card's range (check `nvidia-smi -q -d POWER` and fix `/etc/aihub/gpu.env`), a missing or wrong UUID, or a hand-written `nvidia-smi -pl` without `-i`, which targets every card. See [04-multi-gpu.md](04-multi-gpu.md#1-power-limits-one-per-card).
 
 ## Ollama splits a model across both GPUs
 

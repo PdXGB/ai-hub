@@ -8,14 +8,14 @@
 | CPU | Intel Core i7-10700KF | No iGPU, so a GPU must be installed to get video output |
 | RAM | 128 GB DDR4 | Large models can spill to system RAM; slow, but they still run |
 | NIC | Realtek RTL8125 2.5GbE (onboard) | |
-| PSU | 1000 W 80+ Bronze | Full GPU load is ~325 W + ~184 W plus CPU; plan on 850 W or more |
+| PSU | 1000 W 80+ Bronze | Full GPU load is ~325 W + ~170 W plus CPU; plan on 850 W or more |
 
 ## GPUs
 
 | Card | Slot | Link | Power limit | VRAM | Role |
 |---|---|---|---|---|---|
 | RTX 3090 Founders Edition | Top x16 (CPU lanes) | Gen3 x16 | 325 W (stock 350 W) | 24 GB | Large LLMs, ComfyUI |
-| RTX 2060 12GB | Lower x16 (chipset, x4 electrical) | Gen3 x4 | 184 W (stock) | 12 GB | Home Assistant: Whisper, small LLM, later Frigate |
+| RTX 2060 12GB | Lower x16 (chipset, x4 electrical) | Gen3 x4 | 170 W (stock 184 W) | 12 GB | Home Assistant: Whisper, small LLM, later Frigate |
 
 Z490 runs PCIe Gen3 from the CPU. The x4 chipset link is fine for a card whose models stay resident in its own VRAM; it would be a bottleneck if a model were split across both cards. That's why nothing is split (see [04](04-multi-gpu.md)).
 

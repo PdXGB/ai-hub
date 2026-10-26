@@ -34,7 +34,7 @@ Home Assistant voice reaches its model through LiteLLM's `local-ha` route, so it
 | CPU | Intel i7-10700KF |
 | RAM | 128 GB DDR4 |
 | GPU 1 | RTX 3090 Founders Edition, top x16 slot, power-limited to 325 W |
-| GPU 2 | RTX 2060 12GB, chipset x16 slot (x4 electrical), dedicated to Home Assistant |
+| GPU 2 | RTX 2060 12GB, chipset x16 slot (x4 electrical), power-limited to 170 W, dedicated to Home Assistant |
 | PSU | 1000 W 80+ Bronze |
 | NAS (separate box) | Synology DS1618+ plus a DX517 expansion unit; off-box target for the nightly backups (SMB 3) |
 | OS | Ubuntu 26.04.1 LTS, kernel 7.0 |
@@ -74,10 +74,10 @@ The two GPUs never share a model. Each service is pinned to one card by UUID; se
 
 ```
 compose/          compose.yaml, .env.example, litellm/config.example.yaml, searxng/settings.example.yml
-systemd/          GPU power limit, ComfyUI (+ gpu.conf drop-in), idle VRAM release, backup and
+systemd/          GPU power limits, ComfyUI (+ gpu.conf drop-in), idle VRAM release, backup and
                   aihub-mon timers, persistenced override, gpu.env.example
 host/             docker daemon.json, unattended-upgrades NVIDIA blacklist, aihub-mon.env.example
-host/bin/         aihub-backup, aihub-mon, comfyui-idle-free  (install to /usr/local/bin)
+host/bin/         aihub-backup, aihub-gpu-power, aihub-mon, comfyui-idle-free  (install to /usr/local/bin)
 home-assistant/   dashboard card, automations/ (aihub-mon alerts), voice prompt template
 open-webui/       ask_model tool, assistant system prompt template
 scripts/          setup.sh, scrub.sh, update-image.sh, monthly-update.sh, aihub-gpu-audit.sh, gpu-burn.py
@@ -94,7 +94,7 @@ docs/             step-by-step build notes
    sudo bash scripts/setup.sh
    ```
 
-   It detects the GPUs and LAN IP, then asks for the hostnames, time zone, Cloudflare tunnel token, API keys, budgets, GPU power limit and the MQTT broker for aihub-mon (blank skips an item). It generates the secrets and writes `/srv/ai` (compose, `.env`, LiteLLM and SearXNG configs, update scripts), `/etc/aihub/gpu.env` and the host files, then installs the systemd units and enables the timers. Re-runs never overwrite: they fill in missing values and list files that differ from the repo. `--help` shows the options.
+   It detects the GPUs and LAN IP, then asks for the hostnames, time zone, Cloudflare tunnel token, API keys, budgets, a power limit per GPU and the MQTT broker for aihub-mon (blank skips an item). It generates the secrets and writes `/srv/ai` (compose, `.env`, LiteLLM and SearXNG configs, update scripts), `/etc/aihub/gpu.env` and the host files, then installs the systemd units and enables the timers. Re-runs never overwrite: they fill in missing values and list files that differ from the repo. `--help` shows the options.
 3. Start the stack and pull the models (setup.sh prints these steps at the end):
 
    ```bash

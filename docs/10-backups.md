@@ -21,7 +21,7 @@ The tar archive holds:
 - `/srv/comfyui/user`, `/srv/comfyui/custom_nodes`: ComfyUI workflows and settings, custom nodes
 - `/etc/docker/daemon.json`, `/etc/netplan`, `/etc/fstab`, `/etc/apt/apt.conf.d/51unattended-nvidia`
 - `/etc/aihub` (`gpu.env`), the systemd units and drop-ins (ComfyUI, power limit, idle-free, persistenced, `aihub-*`)
-- `/usr/local/bin/comfyui-idle-free`, `aihub-backup`, `aihub-mon`; `/etc/aihub-mon.env`, `/var/lib/aihub-mon`, and aihub-mon's MQTT login (`/root/.config/mosquitto_pub`)
+- `/usr/local/bin/comfyui-idle-free`, `aihub-backup`, `aihub-gpu-power`, `aihub-mon`; `/etc/aihub-mon.env`, `/var/lib/aihub-mon`, and aihub-mon's MQTT login (`/root/.config/mosquitto_pub`)
 
 Skipped: the raw Postgres data folders (the dumps replace them) and everything under `/srv/models`.
 

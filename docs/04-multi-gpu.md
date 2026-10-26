@@ -17,35 +17,61 @@ nvidia-smi --query-gpu=index,name,uuid,pci.bus_id,memory.total --format=csv
 | File | Read by | Variables |
 |---|---|---|
 | `/srv/ai/.env` (from [`compose/.env.example`](../compose/.env.example)) | Docker Compose | `GPU_MAIN_UUID`, `GPU_HA_UUID` |
-| `/etc/aihub/gpu.env` (from [`systemd/gpu.env.example`](../systemd/gpu.env.example)) | systemd units | `GPU_MAIN_UUID`, `GPU_MAIN_POWER_LIMIT`, `CUDA_DEVICE_ORDER`, `CUDA_VISIBLE_DEVICES` |
+| `/etc/aihub/gpu.env` (from [`systemd/gpu.env.example`](../systemd/gpu.env.example)) | systemd units | `GPU_MAIN_UUID`, `GPU_MAIN_POWER_LIMIT`, `GPU_HA_UUID`, `GPU_HA_POWER_LIMIT`, `CUDA_DEVICE_ORDER`, `CUDA_VISIBLE_DEVICES` |
 
 [`scripts/setup.sh`](../scripts/setup.sh) detects the cards and writes both. By hand:
 
 ```bash
 sudo install -d -m 755 /etc/aihub
 sudo install -m 644 systemd/gpu.env.example /etc/aihub/gpu.env
-sudoedit /etc/aihub/gpu.env          # paste the 3090's UUID into both UUID lines
+sudoedit /etc/aihub/gpu.env          # 3090's UUID: GPU_MAIN_UUID and CUDA_VISIBLE_DEVICES; 2060's: GPU_HA_UUID
 ```
 
-With a single GPU, set `GPU_HA_UUID` to the same UUID as `GPU_MAIN_UUID`. Everything still works; the HA services just share the card.
+With a single GPU, set `GPU_HA_UUID` to the same UUID as `GPU_MAIN_UUID` (in both files) and leave `GPU_HA_POWER_LIMIT` empty. Everything still works; the HA services just share the card.
 
-## 1. Power limit: target one card
+## 1. Power limits: one per card
 
-`nvidia-smi -pl` without `-i` applies to **every** GPU. Once a second card is in, a limit above that card's maximum (325 W vs the 2060's 184 W) makes the command fail, and the main card may not get its limit either.
+`nvidia-smi -pl` without `-i` applies to **every** GPU. Once a second card is in, a limit above that card's maximum (325 W vs the 2060's 202 W max) makes the command fail, and the main card may not get its limit either. So every card gets its own limit, by UUID, in `/etc/aihub/gpu.env`:
 
-[`systemd/nvidia-power-limit.service`](../systemd/nvidia-power-limit.service):
+```bash
+GPU_MAIN_UUID=GPU-...
+GPU_MAIN_POWER_LIMIT=325
+GPU_HA_UUID=GPU-...
+GPU_HA_POWER_LIMIT=170
+```
+
+An empty limit leaves that card at its stock limit.
+
+[`systemd/nvidia-power-limit.service`](../systemd/nvidia-power-limit.service) runs [`host/bin/aihub-gpu-power`](../host/bin/aihub-gpu-power) at boot:
 
 ```ini
 [Service]
 Type=oneshot
-EnvironmentFile=/etc/aihub/gpu.env
-ExecStart=/usr/bin/nvidia-smi -i ${GPU_MAIN_UUID} -pl ${GPU_MAIN_POWER_LIMIT}
+ExecStart=/usr/local/bin/aihub-gpu-power
 RemainAfterExit=yes
 ```
 
-The UUID and wattage come from a file because **systemd doesn't expand `${VAR}` inside `Environment=` lines**, only from `EnvironmentFile=` (or literal values).
+The script runs `nvidia-smi -i <UUID> -pl <watts>` for each card that has a limit. It skips empty limits and a role that points at a card it already set (one GPU: HA is the main card). It tries every card even if one fails, then exits non-zero; `journalctl -u nvidia-power-limit` shows which card. It's a script rather than one `ExecStart=` per card because **systemd doesn't expand `${VAR}` inside `Environment=` lines**, only from `EnvironmentFile=`, and an empty `-pl ""` makes nvidia-smi fail.
 
-The 2060 runs at its stock 184 W. Capping it too would need a second `ExecStart=` line with its own UUID.
+**Choosing a value.** `setup.sh` asks once per card. It shows the stock limit and the allowed range (`nvidia-smi -q -d POWER`) and suggests 93% of stock, rounded to 5 W (325 W on a 350 W 3090). Enter takes the suggestion, `stock` leaves the card alone, and values outside the range are refused. Re-runs never change a limit that's already in `gpu.env`.
+
+What the cap costs on the 2060 (`qwen3:8b` in `ollama-ha`, 300-token generation, 3 runs per step):
+
+| Limit | Generation | Peak draw | Prompt processing (~5k tokens, best of 3) |
+|---|---|---|---|
+| 184 W (stock) | 52.6 tok/s | 188 W | 1286 tok/s |
+| **170 W** (set) | 52.4 tok/s | 173 W | 1278 tok/s |
+| 155 W | 52.0 tok/s | 157 W | 1248 tok/s |
+
+Token generation is limited by memory bandwidth, so a modest cap costs almost nothing. Whisper wasn't measured.
+
+Change a limit later:
+
+```bash
+sudoedit /etc/aihub/gpu.env
+sudo systemctl restart nvidia-power-limit
+nvidia-smi --query-gpu=name,power.limit,power.default_limit --format=csv
+```
 
 ## 2. Containers: one compose anchor per card
 
@@ -120,7 +146,7 @@ After-install record on this build (audit plus a short generation on each card):
 | Slot | CPU x16 | Chipset x4 |
 | Link at idle (P8) | 2.5 GT/s x16 | 2.5 GT/s x4 |
 | Link under load (P2) | 8 GT/s (Gen3) x16 | 8 GT/s (Gen3) x4 |
-| Power limit (default) | 325 W (350 W) | 184 W (184 W) |
+| Power limit (default) | 325 W (350 W) | 170 W (184 W) |
 | Runs | Ollama 27B (~19 GB), ComfyUI (idle ~0.3 GB) | Whisper (~1.9 GB), `ollama-ha` `qwen3:8b` (~6 GB) |
 | VRAM in use / total | ~19.4 / 24 GB | ~8 / 12 GB |
 

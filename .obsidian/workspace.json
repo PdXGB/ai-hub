@@ -185,6 +185,11 @@
   },
   "active": "79a7a29eb92b2aee",
   "lastOpenFiles": [
+    "_handoffs/chat-13-restore-drill.md",
+    "_handoffs/files/chat-13-restore-drill/_scratch/TODO.md.at-start",
+    "_handoffs/files/chat-13-restore-drill/_scratch",
+    "_handoffs/files/chat-13-restore-drill",
+    "_handoffs/files/chat-12-gpu-power/scrub-hashes-server.txt",
     "_handoffs/files/chat-12-gpu-power/sandbox/stub-install",
     "_handoffs/files/chat-12-gpu-power/sandbox/stub-nvidia-smi",
     "_handoffs/files/chat-12-gpu-power/sandbox/drive_pty.py",
@@ -192,7 +197,6 @@
     "_handoffs/files/chat-12-gpu-power/sandbox",
     "_handoffs/files/chat-11-features/sedwPnWN4",
     "_handoffs/files/chat-11-features/next-chat-prompt-13-restore-drill.md",
-    "_handoffs/files/chat-11-features/feature-ideas.md",
-    "_handoffs/files/chat-11-features/TODO.md.pre-chat11"
+    "_handoffs/files/chat-11-features/feature-ideas.md"
   ]
 }

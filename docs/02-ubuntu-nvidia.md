@@ -155,7 +155,7 @@ nvidia-smi --query-gpu=persistence_mode --format=csv    # Enabled
 
 (`scripts/setup.sh` installs this drop-in too; if it's already there, setup leaves it alone.)
 
-The GPU **power limit** is set per card by UUID: see [04-multi-gpu.md](04-multi-gpu.md#1-power-limit-target-one-card).
+The GPU **power limit** is set per card by UUID: see [04-multi-gpu.md](04-multi-gpu.md#1-power-limits-one-per-card).
 
 ### If `nvidia-smi` fails
 
