@@ -1,0 +1,5 @@
+[Unit]
+Description=Free ComfyUI VRAM when idle
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/comfyui-idle-free

@@ -1,0 +1,15 @@
+# 2. Groot stopped reporting (down, hung, or off the network)
+alias: Groot - offline
+triggers:
+  - trigger: state
+    entity_id: binary_sensor.groot_online
+    to: unavailable
+    for: "00:05:00"
+actions:
+  - action: notify.mobile_app_your_phone
+    data:
+      title: "Groot offline"
+      message: "No data from groot for 8 minutes. It may be down or off the network."
+      data:
+        tag: groot-offline
+        priority: high

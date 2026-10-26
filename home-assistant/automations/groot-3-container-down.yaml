@@ -1,0 +1,20 @@
+# 3. A container stopped or went unhealthy for 5 minutes
+alias: Groot - container down
+triggers:
+  - trigger: state
+    entity_id: binary_sensor.groot_all_containers
+    to: "off"
+    for: "00:05:00"
+actions:
+  - action: notify.mobile_app_your_phone
+    data:
+      title: "Groot container problem"
+      message: >-
+        {% set ns = namespace(bad=[]) %}
+        {% for s in states.sensor | selectattr('entity_id', 'search', '^sensor\.groot_container_')
+             | rejectattr('entity_id', 'search', 'updates') %}
+          {% if s.state != 'running' %}{% set ns.bad = ns.bad + [s.name ~ ': ' ~ s.state] %}{% endif %}
+        {% endfor %}
+        {{ ns.bad | join(', ') if ns.bad else 'One or more containers are not running.' }}
+      data:
+        tag: groot-containers

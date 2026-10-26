@@ -1,0 +1,70 @@
+model_list:
+  # --- local (3090), no cost ---
+  - model_name: local-fast
+    litellm_params:
+      model: ollama_chat/huihui_ai/Qwen3.8-abliterated:27b
+      keep_alive: -1
+      api_base: http://ollama:11434
+  - model_name: local-deep
+    litellm_params:
+      model: ollama_chat/gpt-oss:120b
+      keep_alive: 5m
+      api_base: http://ollama:11434
+
+  - model_name: local-ha                   # Home Assistant voice: small model on the HA GPU, thinking off
+    litellm_params:
+      model: ollama_chat/qwen3:8b
+      api_base: http://ollama-ha:11434
+      keep_alive: -1
+      think: false
+  - model_name: embed
+    litellm_params:
+      model: ollama/nomic-embed-text
+      api_base: http://ollama:11434
+    model_info:
+      mode: embedding
+
+  # --- Claude ---
+  - model_name: claude                     # medium
+    litellm_params:
+      model: anthropic/claude-sonnet-5-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+      max_budget: 25
+      budget_duration: 30d
+  - model_name: claude-opus                # large
+    litellm_params:
+      model: anthropic/claude-opus-5-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+      max_budget: 25
+      budget_duration: 30d
+
+  # --- Gemini ---
+  - model_name: gemini                     # medium
+    litellm_params:
+      model: gemini/gemini-3.8-flash
+      api_key: os.environ/GEMINI_API_KEY
+      max_budget: 25
+      budget_duration: 30d
+  - model_name: gemini-pro                 # large (preview)
+    litellm_params:
+      model: gemini/gemini-3.1-pro-preview
+      api_key: os.environ/GEMINI_API_KEY
+      max_budget: 25
+      budget_duration: 30d
+
+  # --- Grok ---
+  - model_name: grok
+    litellm_params:
+      model: xai/grok-4.7
+      api_key: os.environ/XAI_API_KEY
+      max_budget: 25
+      budget_duration: 30d
+
+litellm_settings:
+  drop_params: true      # silently drop params a provider rejects
+  max_budget: 50          # hard ceiling, all cloud routes combined
+  budget_duration: 30d
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL

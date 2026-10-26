@@ -1,0 +1,11 @@
+[Unit]
+Description=groot-mon: listen for Home Assistant button presses
+After=network-online.target
+Wants=network-online.target
+[Service]
+Environment=HOME=/root
+ExecStart=/usr/local/bin/groot-mon --listen
+Restart=always
+RestartSec=15
+[Install]
+WantedBy=multi-user.target

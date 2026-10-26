@@ -1,0 +1,14 @@
+[Unit]
+Description=Set NVIDIA GPU power limit
+After=nvidia-persistenced.service
+Wants=nvidia-persistenced.service
+
+[Service]
+Type=oneshot
+# GPU_MAIN_UUID and GPU_MAIN_POWER_LIMIT come from /etc/groot-ai/gpu.env (written by setup.sh)
+EnvironmentFile=/etc/groot-ai/gpu.env
+ExecStart=/usr/bin/nvidia-smi -i ${GPU_MAIN_UUID} -pl ${GPU_MAIN_POWER_LIMIT}
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

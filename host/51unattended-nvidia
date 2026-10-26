@@ -1,0 +1,5 @@
+Unattended-Upgrade::Package-Blacklist {
+    "linux-";
+    "nvidia-";
+    "libnvidia-";
+};

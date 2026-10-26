@@ -1,0 +1,52 @@
+# --- Secrets (never commit) ---
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.crt
+credentials*.json
+cloudflared/*.json
+
+# --- Scrub workflow ---
+# scrub.sh copies live configs from groot here; only reviewed, scrubbed
+# files get moved into the repo proper.
+staging/
+*.scrub-report.txt
+scrub-report.txt
+
+# Raw handoff notes from other chats (private notes repo; never in the public one)
+_handoffs/
+
+# --- Backups / editor leftovers ---
+*.bak
+*.orig
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+
+# --- Models, data, runtime state ---
+models/
+*.gguf
+*.safetensors
+*.ckpt
+*.pt
+*.bin
+data/
+volumes/
+postgres-data/
+logs/
+*.log
+
+# --- Python ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# scrub.sh local replacements (lives on groot, never commit)
+.scrub-literals
+SCRUB-REPORT.txt

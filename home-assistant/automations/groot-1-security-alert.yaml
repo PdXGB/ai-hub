@@ -1,0 +1,24 @@
+# 1. Security alert: fires when a new alert appears or the alert list changes
+alias: Groot - security alert
+mode: queued
+triggers:
+  - trigger: state
+    entity_id: sensor.groot_security_alerts
+conditions:
+  - condition: template
+    value_template: >-
+      {{ trigger.from_state is not none
+         and trigger.from_state.state not in ['unknown', 'unavailable']
+         and trigger.to_state.state | int(0) > 0
+         and trigger.to_state.attributes.get('items') != trigger.from_state.attributes.get('items') }}
+actions:
+  - action: notify.mobile_app_your_phone
+    data:
+      title: "🚨 Groot security"
+      message: "{{ trigger.to_state.attributes.get('items', []) | join('\n') }}"
+      data:
+        ttl: 0
+        priority: high
+        push:
+          interruption-level: time-sensitive
+        tag: groot-security

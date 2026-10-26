@@ -1,0 +1,540 @@
+#!/usr/bin/env python3
+"""groot-mon — publish groot's health, AI status, updates and security checks to Home Assistant via MQTT.
+
+  groot-mon            collect + publish (run every minute by groot-mon.timer)
+  groot-mon --daily    refresh update checks: apt, containers, firmware (run daily by groot-mon-daily.timer)
+  groot-mon --accept   accept current ports + critical files as the baseline, and mark SSH/sudo alerts as seen
+  groot-mon --listen   wait for button presses from Home Assistant (run by groot-mon-listen.service)
+  groot-mon --dry-run  print what would be published, publish nothing
+
+Config: /etc/groot-mon.env      MQTT login: /root/.config/mosquitto_pub (mosquitto_pub options file)
+
+Multi-GPU: the main GPU (GPU_MAIN_UUID, else the one with the most VRAM) keeps the original "GPU ..." entities;
+the HA GPU (GPU_HA_UUID, else the next one) gets "HA GPU ..." entities. "GPU" (gpu_ok) is ON only when
+nvidia-smi answers for every expected card (GPU_COUNT, else the NVIDIA GPUs lspci sees).
+"""
+import glob, hashlib, ipaddress, json, os, re, shutil, subprocess, sys, time, urllib.request
+
+STATE_DIR = "/var/lib/groot-mon"
+ENV_FILE = "/etc/groot-mon.env"
+DISCOVERY_MARK = "/run/groot-mon.discovery"
+PREFIX = "homeassistant"
+BASE = "groot"
+
+CFG = {
+    "COMPOSE_DIR": "/srv/ai",
+    "COMPOSE_PROJECT": "ai",
+    "ALLOWED_NETS": "<YOUR_LAN_CIDR> <YOUR_OTHER_LAN_CIDR> 172.16.0.0/12 127.0.0.0/8 ::1/128 fe80::/10 fd00::/8",
+    "SSH_FAIL_ALERT": "10",          # failed SSH attempts in 24 h before alerting
+    "CLOUD_BUDGET": "50",
+    "OLLAMA_URL": "http://127.0.0.1:11434",
+    "LITELLM_URL": "http://127.0.0.1:4000",
+    "GPU_MAIN_UUID": "",             # optional; default = card with the most VRAM
+    "GPU_HA_UUID": "",               # optional; default = next card
+    "GPU_COUNT": "",                 # optional; default = NVIDIA GPUs visible to lspci
+    "DISK_MOUNTS": "/ /srv/models/ollama /srv/models/comfyui /srv/backup",
+    "DISK_ALERT_PCT": "85",
+    "BACKUP_DIR": "/srv/backup",     # dated backup dirs (20*); empty = skip
+    "BACKUP_MAX_AGE_H": "26",
+    "NAS_BACKUP_DIR": "/mnt/nas/groot",   # off-box copy; empty = skip
+    "NAS_MAX_AGE_H": "27",
+    "COMFYUI_UNIT": "comfyui.service",    # empty = skip
+}
+if os.path.exists(ENV_FILE):
+    for ln in open(ENV_FILE):
+        m = re.match(r"^\s*([A-Z_]+)\s*=\s*\"?(.*?)\"?\s*$", ln)
+        if m:
+            CFG[m.group(1)] = m.group(2)
+
+CRITICAL_FILES = [
+    "/etc/passwd", "/etc/shadow", "/etc/group", "/etc/sudoers", "/etc/sudoers.d/*",
+    "/etc/ssh/sshd_config", "/etc/ssh/sshd_config.d/*", "/root/.ssh/authorized_keys", "/home/*/.ssh/authorized_keys",
+    "/etc/crontab", "/etc/cron.d/*", "/var/spool/cron/crontabs/*",
+    "/etc/systemd/system/*.service", "/etc/systemd/system/*.timer", "/etc/ld.so.preload",
+]
+
+
+def sh(cmd, timeout=60):
+    """Run a command; return stdout ('' on any failure)."""
+    try:
+        return subprocess.run(cmd, shell=isinstance(cmd, str), capture_output=True, text=True, timeout=timeout).stdout
+    except Exception:
+        return ""
+
+
+def num(x, nd=1):
+    try:
+        return round(float(x), nd)
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------- system + GPU
+def system():
+    d = {}
+    d["cpu_load"] = num(open("/proc/loadavg").read().split()[0], 2)
+    for hw in glob.glob("/sys/class/hwmon/hwmon*"):
+        try:
+            if open(f"{hw}/name").read().strip() in ("coretemp", "k10temp", "zenpower"):
+                d["cpu_temp"] = num(int(open(f"{hw}/temp1_input").read()) / 1000)
+                break
+        except Exception:
+            pass
+    mem = {k: int(v.split()[0]) for k, v in (l.split(":", 1) for l in open("/proc/meminfo"))}
+    d["ram_used_pct"] = num(100 * (1 - mem["MemAvailable"] / mem["MemTotal"]))
+    d["ram_used_gb"] = num((mem["MemTotal"] - mem["MemAvailable"]) / 1048576)
+    du = shutil.disk_usage("/")
+    d["disk_used_pct"] = num(100 * du.used / du.total)
+    d["disk_free_gb"] = num(du.free / 1e9, 0)
+    boot = time.time() - float(open("/proc/uptime").read().split()[0])
+    d["boot_time"] = time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(boot))
+    d["reboot_required"] = "ON" if os.path.exists("/var/run/reboot-required") else "OFF"
+
+    d.update(gpus())
+    return d
+
+
+def expected_gpus():
+    if CFG["GPU_COUNT"].strip().isdigit():
+        return int(CFG["GPU_COUNT"])
+    # VGA (0300) and 3D (0302) controllers from NVIDIA (10de); a card that drops off the bus may vanish here too
+    return sum(1 for l in sh(["lspci", "-n", "-d", "10de:"]).splitlines() if re.search(r" 030[02]: ", l)) or 1
+
+
+def gpus():
+    d, cards = {}, []
+    out = sh(["nvidia-smi", "--query-gpu=index,uuid,name,temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw",
+              "--format=csv,noheader,nounits"], 30)
+    for ln in out.strip().splitlines():
+        f = [x.strip() for x in ln.split(",")]
+        if len(f) != 8:
+            continue
+        cards.append({"index": f[0], "uuid": f[1], "name": f[2], "temp": num(f[3], 0), "util": num(f[4], 0),
+                      "mem_used": num(f[5], 0), "mem_total": num(f[6], 0), "power": num(f[7], 0)})
+    main = next((c for c in cards if c["uuid"] == CFG["GPU_MAIN_UUID"]), None) or \
+        max(cards, key=lambda c: c["mem_total"] or 0, default=None)
+    rest = [c for c in cards if c is not main]
+    ha = next((c for c in rest if c["uuid"] == CFG["GPU_HA_UUID"]), None) or \
+        max(rest, key=lambda c: c["mem_total"] or 0, default=None)
+    for prefix, c in (("", main), ("ha_", ha)):
+        if not c:
+            continue
+        d[f"gpu_{prefix}temp"], d[f"gpu_{prefix}util"], d[f"gpu_{prefix}power"] = c["temp"], c["util"], c["power"]
+        if c["mem_used"] is not None and c["mem_total"]:
+            d[f"vram_{prefix}used_gb"] = num(c["mem_used"] / 1024)
+            d[f"vram_{prefix}used_pct"] = num(100 * c["mem_used"] / c["mem_total"], 0)
+    want = expected_gpus()
+    d["gpu_count"] = len(cards)
+    d["gpu_ok"] = "ON" if cards and len(cards) >= want else "OFF"   # OFF: nvidia-smi failing, or a card missing
+    d["gpus"] = [{"index": c["index"], "name": c["name"], "role": "main" if c is main else ("ha" if c is ha else "other"),
+                  "temp": c["temp"], "util": c["util"], "power": c["power"]} for c in cards] + \
+                [{"missing": want - len(cards)}] * (len(cards) < want)
+    return d
+
+
+# ---------------------------------------------------------------- services, disks, backups (was groot-health)
+def newest_age_h(path):
+    """Hours since the newest dated (20*) dir in path; None if none/unreachable. timeout guards a hung NAS mount."""
+    out = sh(["timeout", "15", "find", path, "-mindepth", "1", "-maxdepth", "1", "-type", "d", "-name", "20*",
+              "-printf", "%T@\\n"], 20)
+    t = [float(x) for x in out.split() if re.match(r"^[\d.]+$", x)]
+    return num((time.time() - max(t)) / 3600) if t else None
+
+
+def health():
+    d = {}
+    unit = CFG["COMFYUI_UNIT"].strip()
+    if unit:
+        d["comfyui_ok"] = "ON" if sh(["systemctl", "is-active", unit]).strip() == "active" else "OFF"
+    try:
+        urllib.request.urlopen(CFG["LITELLM_URL"] + "/health/liveliness", timeout=5)
+        d["litellm_ok"] = "ON"
+    except Exception:
+        d["litellm_ok"] = "OFF"
+
+    mounts, worst = {}, None
+    for m in CFG["DISK_MOUNTS"].split():
+        try:
+            du = shutil.disk_usage(m)
+            mounts[m] = num(100 * du.used / du.total, 0)
+        except Exception:
+            mounts[m] = None
+    vals = [v for v in mounts.values() if v is not None]
+    d["disk_mounts"] = mounts
+    d["disk_max_used_pct"] = max(vals) if vals else None
+    d["disks_ok"] = "ON" if vals and len(vals) == len(mounts) and max(vals) < float(CFG["DISK_ALERT_PCT"]) else "OFF"
+
+    problems = []
+    if CFG["BACKUP_DIR"].strip():
+        a = d["backup_age_h"] = newest_age_h(CFG["BACKUP_DIR"])
+        if a is None or a > float(CFG["BACKUP_MAX_AGE_H"]):
+            problems.append("local backup " + ("missing" if a is None else f"{a:.0f} h old"))
+    if CFG["NAS_BACKUP_DIR"].strip():
+        a = d["nas_backup_age_h"] = newest_age_h(CFG["NAS_BACKUP_DIR"])
+        if a is None or a > float(CFG["NAS_MAX_AGE_H"]):
+            problems.append("NAS copy " + ("unreachable or missing" if a is None else f"{a:.0f} h old"))
+    d["backups_ok"] = "OFF" if problems else "ON"
+    d["backup_problems"] = problems
+    return d
+
+
+# ---------------------------------------------------------------- containers
+def containers():
+    out = sh(["docker", "ps", "-a", "--format", "{{json .}}"])
+    stack, foreign = {}, []
+    for ln in out.splitlines():
+        try:
+            c = json.loads(ln)
+        except Exception:
+            continue
+        labels = dict(kv.split("=", 1) for kv in c.get("Labels", "").split(",") if "=" in kv)
+        if labels.get("com.docker.compose.project") == CFG["COMPOSE_PROJECT"]:
+            svc = labels.get("com.docker.compose.service", c["Names"])
+            st = c.get("State", "unknown")
+            if st == "running" and "(unhealthy)" in c.get("Status", ""):
+                st = "unhealthy"
+            stack[svc] = {"state": st, "status": c.get("Status", "")}
+        elif c.get("State") == "running":
+            foreign.append(f'{c["Names"]} ({c.get("Image", "?")})')
+    up = sum(1 for v in stack.values() if v["state"] == "running")
+    return {"containers": stack, "containers_up": up, "containers_total": len(stack),
+            "containers_ok": "ON" if stack and up == len(stack) else "OFF"}, foreign
+
+
+# ---------------------------------------------------------------- AI status
+def ai():
+    d = {"ollama_models": [], "ollama_loaded": "none"}
+    try:
+        ps = json.load(urllib.request.urlopen(CFG["OLLAMA_URL"] + "/api/ps", timeout=5))
+        for m in ps.get("models", []):
+            size, vram = m.get("size", 0), m.get("size_vram", 0)
+            gpu = round(100 * vram / size) if size else 0
+            d["ollama_models"].append({"name": m["name"], "gpu_pct": gpu,
+                                       "size_gb": round(size / 1e9, 1), "until": m.get("expires_at", "")})
+        if d["ollama_models"]:
+            d["ollama_loaded"] = ", ".join(f'{m["name"].split("/")[-1]} ({m["gpu_pct"]}% GPU)' for m in d["ollama_models"])
+        d["ollama_ok"] = "ON"
+    except Exception:
+        d["ollama_ok"] = "OFF"
+
+    q = ("SELECT COALESCE(model_group, model, '?'), ROUND(SUM(spend)::numeric, 4) FROM \"LiteLLM_SpendLogs\" "
+         "WHERE \"startTime\" > now() - interval '30 days' GROUP BY 1 ORDER BY 2 DESC")
+    out = sh(["docker", "compose", "--project-directory", CFG["COMPOSE_DIR"], "exec", "-T", "litellm-db", "sh", "-c",
+              f'psql -U "$POSTGRES_USER" -d "${{POSTGRES_DB:-$POSTGRES_USER}}" -tAF"|" -c "{q.replace(chr(34), chr(92) + chr(34))}"'])
+    by_model = {}
+    for ln in out.splitlines():
+        if "|" in ln:
+            k, v = ln.split("|", 1)
+            by_model[k] = num(v, 2)
+    if out.strip() or by_model:
+        total = round(sum(v or 0 for v in by_model.values()), 2)
+        d["cloud_spend_30d"] = total
+        d["cloud_budget_pct"] = num(100 * total / float(CFG["CLOUD_BUDGET"]), 0)
+    d["cloud_spend_by_model"] = by_model
+    return d
+
+
+# ---------------------------------------------------------------- updates (daily)
+def daily():
+    os.makedirs(STATE_DIR, exist_ok=True)
+    apt = [l.split("/")[0] for l in sh("apt list --upgradable 2>/dev/null", 120).splitlines()
+           if "/" in l and not l.startswith("Listing")]
+    chk = sh([f'{CFG["COMPOSE_DIR"]}/update-image.sh', "--check"], 1800)
+    cont = []
+    if "Updates available:" in chk:
+        cont = [l.strip() for l in chk.split("Updates available:", 1)[1].splitlines() if l.strip()]
+    sh("fwupdmgr refresh --force", 120)
+    fw = []
+    try:
+        for dev in json.loads(sh("fwupdmgr get-upgrades --json", 120) or "{}").get("Devices", []):
+            fw.append(dev.get("Name", "?"))
+    except Exception:
+        pass
+    u = {"apt_updates": len(apt), "apt_packages": apt[:50], "container_updates": len(cont),
+         "container_list": cont, "firmware_updates": len(fw), "firmware_list": fw,
+         "updates_checked": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
+    json.dump(u, open(f"{STATE_DIR}/updates.json", "w"))
+    return u
+
+
+def updates():
+    try:
+        return json.load(open(f"{STATE_DIR}/updates.json"))
+    except Exception:
+        return {"apt_updates": None, "apt_packages": [], "container_updates": None, "container_list": [],
+                "firmware_updates": None, "firmware_list": [], "updates_checked": None}
+
+
+# ---------------------------------------------------------------- security
+_NETS = None
+
+
+def allowed_nets():
+    global _NETS
+    if _NETS is not None:
+        return _NETS
+    nets = []
+    for n in CFG["ALLOWED_NETS"].split():
+        try:
+            nets.append(ipaddress.ip_network(n, strict=False))
+        except ValueError:
+            print(f"groot-mon: ignoring invalid ALLOWED_NETS entry {n!r}", file=sys.stderr)
+    _NETS = nets
+    return nets
+
+
+def allowed(ip):
+    try:
+        a = ipaddress.ip_address(ip)
+        return any(a.version == n.version and a in n for n in allowed_nets())
+    except ValueError:
+        return False
+
+
+def listening_ports():
+    ports = set()
+    for ln in sh(["ss", "-tlnH"]).splitlines():
+        f = ln.split()
+        if len(f) >= 4:
+            ports.add(f[3])
+    return sorted(ports)
+
+
+def file_hashes():
+    h = {}
+    for pat in CRITICAL_FILES:
+        for p in glob.glob(pat):
+            try:
+                h[p] = hashlib.sha256(open(p, "rb").read()).hexdigest()
+            except Exception:
+                pass
+    return h
+
+
+def accept_baseline(source="cli"):
+    os.makedirs(STATE_DIR, exist_ok=True)
+    json.dump({"ports": listening_ports(), "files": file_hashes(),
+               "accepted": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "source": source},
+              open(f"{STATE_DIR}/baseline.json", "w"), indent=1)
+    os.chmod(f"{STATE_DIR}/baseline.json", 0o600)
+    print(f"groot-mon: security baseline accepted (source: {source})", file=sys.stderr)
+
+
+def log_since(bl):
+    """Look back 24 h, or only to the last acknowledgement if that's more recent."""
+    t = time.time() - 86400
+    try:
+        t = max(t, time.mktime(time.strptime(bl.get("accepted", "")[:19], "%Y-%m-%dT%H:%M:%S")))
+    except Exception:
+        pass
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(t))
+
+
+def security(foreign):
+    alerts = []
+    bl_path = f"{STATE_DIR}/baseline.json"
+    if not os.path.exists(bl_path):
+        accept_baseline("first run")
+    bl = json.load(open(bl_path))
+    since = log_since(bl)
+    j = sh(["journalctl", "-q", "--no-pager", "-o", "cat", "--since", since, "-t", "sshd", "-t", "sshd-session"], 60)
+    accepted = re.findall(r"Accepted (\S+) for (\S+) from (\S+) port", j)
+    failed = re.findall(r"Failed \S+ for (?:invalid user )?(\S+) from (\S+)", j) + \
+             re.findall(r"Invalid user (\S+) from (\S+)", j)
+    for method, user, ip in accepted:
+        if not allowed(ip):
+            alerts.append(f"SSH login from outside your networks: {user}@{ip} ({method})")
+    if len(failed) >= int(CFG["SSH_FAIL_ALERT"]):
+        ips = sorted({ip for _, ip in failed})
+        alerts.append(f"{len(failed)} failed SSH logins in 24 h from {', '.join(ips[:5])}")
+    s = sh(["journalctl", "-q", "--no-pager", "-o", "cat", "--since", since, "-t", "sudo"], 60)
+    sudo_fail = len(re.findall(r"authentication failure|incorrect password attempt", s))
+    if sudo_fail:
+        alerts.append(f"{sudo_fail} failed sudo attempt(s) in 24 h")
+    if foreign:
+        alerts.append("Containers running outside the ai stack: " + ", ".join(foreign))
+
+    new_ports = sorted(set(listening_ports()) - set(bl["ports"]))
+    if new_ports:
+        alerts.append("New listening port(s): " + ", ".join(new_ports))
+    cur = file_hashes()
+    changed = sorted(p for p in cur if bl["files"].get(p) != cur[p])
+    removed = sorted(p for p in bl["files"] if p not in cur)
+    if changed or removed:
+        alerts.append("Critical files changed: " + ", ".join((changed + removed)[:8]))
+
+    last = accepted[-1] if accepted else None
+    return {"security_alerts": len(alerts), "security_problem": "ON" if alerts else "OFF",
+            "security_alert_list": alerts, "security_summary": " | ".join(alerts)[:250] if alerts else "All clear",
+            "ssh_failed_24h": len(failed), "ssh_logins_24h": len(accepted),
+            "ssh_last_login": f"{last[1]}@{last[2]}" if last else "none",
+            "alerts_acknowledged": bl.get("accepted") if "T" in bl.get("accepted", "") else None}
+
+
+# ---------------------------------------------------------------- MQTT
+DEVICE = {"identifiers": ["groot"], "name": "Groot", "manufacturer": "groot-ai-hub", "model": "AI server (i7-10700KF / RTX 3090 + RTX 2060)"}
+
+S = "sensor"; B = "binary_sensor"
+# (component, key, name, unit, device_class, state_class, icon, extra)
+ENTITIES = [
+    (S, "cpu_load", "CPU load", None, None, "measurement", "mdi:cpu-64-bit", {}),
+    (S, "cpu_temp", "CPU temperature", "°C", "temperature", "measurement", None, {}),
+    (S, "ram_used_pct", "RAM used", "%", None, "measurement", "mdi:memory", {}),
+    (S, "disk_used_pct", "Disk used", "%", None, "measurement", "mdi:harddisk", {}),
+    (S, "disk_free_gb", "Disk free", "GB", "data_size", "measurement", None, {}),
+    (S, "boot_time", "Last boot", None, "timestamp", None, None, {}),
+    (S, "gpu_temp", "GPU temperature", "°C", "temperature", "measurement", None, {}),
+    (S, "gpu_util", "GPU utilization", "%", None, "measurement", "mdi:expansion-card", {}),
+    (S, "vram_used_pct", "VRAM used", "%", None, "measurement", "mdi:memory", {}),
+    (S, "vram_used_gb", "VRAM used GB", "GB", "data_size", "measurement", None, {}),
+    (S, "gpu_power", "GPU power", "W", "power", "measurement", None, {}),
+    (S, "gpu_ha_temp", "HA GPU temperature", "°C", "temperature", "measurement", None, {}),
+    (S, "gpu_ha_util", "HA GPU utilization", "%", None, "measurement", "mdi:expansion-card", {}),
+    (S, "vram_ha_used_pct", "HA GPU VRAM used", "%", None, "measurement", "mdi:memory", {}),
+    (S, "vram_ha_used_gb", "HA GPU VRAM used GB", "GB", "data_size", "measurement", None, {}),
+    (S, "gpu_ha_power", "HA GPU power", "W", "power", "measurement", None, {}),
+    (S, "gpu_count", "GPUs detected", None, None, "measurement", "mdi:expansion-card-variant", {"attr": "gpus"}),
+    (S, "disk_max_used_pct", "Fullest disk", "%", None, "measurement", "mdi:harddisk", {"attr": "disk_mounts"}),
+    (S, "backup_age_h", "Backup age", "h", None, "measurement", "mdi:backup-restore", {}),
+    (S, "nas_backup_age_h", "NAS backup age", "h", None, "measurement", "mdi:nas", {}),
+    (S, "containers_up", "Containers up", None, None, "measurement", "mdi:docker", {"attr": "containers"}),
+    (S, "ollama_loaded", "Ollama loaded", None, None, None, "mdi:brain", {"attr": "ollama_models"}),
+    (S, "cloud_spend_30d", "Cloud spend 30 days", "USD", "monetary", None, "mdi:cash", {"attr": "cloud_spend_by_model"}),
+    (S, "cloud_budget_pct", "Cloud budget used", "%", None, "measurement", "mdi:gauge", {}),
+    (S, "ssh_failed_24h", "SSH failures 24h", None, None, "measurement", "mdi:shield-alert", {}),
+    (S, "ssh_last_login", "SSH last login", None, None, None, "mdi:login", {}),
+    (S, "security_alerts", "Security alerts", None, None, "measurement", "mdi:shield-bug",
+     {"attr": "security_alert_list"}),
+    (S, "security_summary", "Security summary", None, None, None, "mdi:shield-search", {}),
+    (S, "alerts_acknowledged", "Alerts acknowledged", None, "timestamp", None, "mdi:shield-check", {}),
+    (B, "gpu_ok", "GPU", None, "running", None, None, {"attr": "gpus"}),
+    (B, "comfyui_ok", "ComfyUI", None, "running", None, None, {}),
+    (B, "litellm_ok", "LiteLLM", None, "running", None, None, {}),
+    (B, "disks_ok", "Disks", None, None, None, "mdi:harddisk", {"attr": "disk_mounts"}),
+    (B, "backups_ok", "Backups", None, None, None, "mdi:backup-restore", {"attr": "backup_problems"}),
+    (B, "ollama_ok", "Ollama", None, "running", None, None, {}),
+    (B, "containers_ok", "All containers", None, "running", None, None, {}),
+    (B, "reboot_required", "Reboot required", None, "update", None, None, {}),
+    (B, "security_problem", "Security", None, "safety", None, None, {}),
+    (B, "online", "Online", None, "connectivity", None, None, {}),
+    (S, "apt_updates", "APT updates", None, None, None, "mdi:package-up", {"topic": "updates", "attr": "apt_packages"}),
+    (S, "container_updates", "Container updates", None, None, None, "mdi:docker",
+     {"topic": "updates", "attr": "container_list"}),
+    (S, "firmware_updates", "Firmware updates", None, None, None, "mdi:chip",
+     {"topic": "updates", "attr": "firmware_list"}),
+    (S, "updates_checked", "Updates checked", None, "timestamp", None, None, {"topic": "updates"}),
+]
+
+
+BUTTONS = [("ack_alerts", "Acknowledge alerts", "accept", "mdi:shield-check"),
+           ("check_updates", "Check updates now", "check_updates", "mdi:update")]
+
+
+def discovery_payloads(services):
+    msgs = []
+    for key, name, payload, icon in BUTTONS:
+        p = {"name": name, "unique_id": f"groot_{key}", "command_topic": f"{BASE}/cmd",
+             "payload_press": payload, "icon": icon, "device": DEVICE,
+             "availability_topic": f"{BASE}/listener", "payload_available": "online", "payload_not_available": "offline"}
+        msgs.append((f"{PREFIX}/button/groot/{key}/config", json.dumps(p)))
+    for comp, key, name, unit, dc, sc, icon, ex in ENTITIES:
+        topic = f"{BASE}/{ex.get('topic', 'state')}"
+        p = {"name": name, "unique_id": f"groot_{key}", "state_topic": topic,
+             "value_template": f"{{{{ value_json.{key} }}}}", "device": DEVICE}
+        if key == "online":
+            p["value_template"] = "ON"
+        if ex.get("topic") != "updates":
+            p["expire_after"] = 180          # goes unavailable if groot stops reporting
+        if unit: p["unit_of_measurement"] = unit
+        if dc: p["device_class"] = dc
+        if sc: p["state_class"] = sc
+        if icon: p["icon"] = icon
+        if comp == B: p["payload_on"], p["payload_off"] = "ON", "OFF"
+        if "attr" in ex:
+            p["json_attributes_topic"] = topic
+            p["json_attributes_template"] = f"{{{{ {{'items': value_json.{ex['attr']}}} | tojson }}}}"
+        msgs.append((f"{PREFIX}/{comp}/groot/{key}/config", json.dumps(p)))
+    for svc in services:
+        p = {"name": f"Container {svc}", "unique_id": f"groot_container_{svc}", "state_topic": f"{BASE}/state",
+             "value_template": f"{{{{ value_json.containers['{svc}'].state if '{svc}' in value_json.containers else 'missing' }}}}",
+             "json_attributes_topic": f"{BASE}/state",
+             "json_attributes_template": f"{{{{ {{'status': value_json.containers['{svc}'].status if '{svc}' in value_json.containers else ''}} | tojson }}}}",
+             "icon": "mdi:docker", "expire_after": 180, "device": DEVICE}
+        msgs.append((f"{PREFIX}/sensor/groot/container_{svc}/config", json.dumps(p)))
+    return msgs
+
+
+def publish(topic, payload, retain=False, dry=False):
+    if dry:
+        print(f"{topic}  {payload}")
+        return
+    cmd = ["mosquitto_pub", "-q", "1", "-t", topic, "-m", payload] + (["-r"] if retain else [])
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    if r.returncode:
+        print(f"mosquitto_pub failed for {topic}: {r.stderr.strip()}", file=sys.stderr)
+
+
+def listen():
+    """Wait for button presses from HA. Marks itself online/offline so the buttons grey out if this isn't running."""
+    import shlex
+    conf = [a for ln in open("/root/.config/mosquitto_pub") for a in shlex.split(ln)]
+    cmd = ["mosquitto_sub", *conf, "-q", "1", "-t", f"{BASE}/cmd",
+           "--will-topic", f"{BASE}/listener", "--will-payload", "offline", "--will-retain"]
+    publish(f"{BASE}/listener", "online", retain=True)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True)
+    try:
+        for msg in proc.stdout:
+            msg = msg.strip()
+            if msg == "accept":
+                accept_baseline("Home Assistant button")
+                cycle()                                   # refresh HA right away
+            elif msg == "check_updates":
+                print("groot-mon: update check requested from Home Assistant", file=sys.stderr)
+                publish(f"{BASE}/updates", json.dumps(daily()), retain=True)
+            elif msg:
+                print(f"groot-mon: ignored unknown command {msg[:40]!r}", file=sys.stderr)
+    finally:
+        publish(f"{BASE}/listener", "offline", retain=True)
+        proc.terminate()
+    sys.exit(1)   # mosquitto_sub exited (broker restart etc.); systemd restarts us
+
+
+def main():
+    args = sys.argv[1:]
+    dry = "--dry-run" in args
+    if "--accept" in args:
+        accept_baseline("cli"); print("Baseline accepted and SSH/sudo alerts marked as seen."); return
+    if "--daily" in args:
+        u = daily()
+        publish(f"{BASE}/updates", json.dumps(u), retain=True, dry=dry)
+        return
+    if "--listen" in args:
+        listen(); return
+    cycle(dry)
+
+
+def cycle(dry=False):
+    # every key present so HA never sees an undefined template variable; null renders as "None" -> unknown
+    state = {key: None for comp, key, *_ in ENTITIES if key != "online"}
+    for k in ("apt_updates", "container_updates", "firmware_updates", "updates_checked"):
+        state.pop(k, None)
+    state.update(system())
+    state.update(health())
+    c, foreign = containers()
+    state.update(c)
+    state.update(ai())
+    state.update(security(foreign))
+
+    sig = hashlib.sha256(json.dumps([ENTITIES, BUTTONS, sorted(c["containers"])], default=str).encode()).hexdigest()
+    if dry or not os.path.exists(DISCOVERY_MARK) or open(DISCOVERY_MARK).read() != sig:
+        for t, p in discovery_payloads(sorted(c["containers"])):
+            publish(t, p, retain=True, dry=dry)
+        u = updates()
+        publish(f"{BASE}/updates", json.dumps(u), retain=True, dry=dry)
+        if not dry:
+            open(DISCOVERY_MARK, "w").write(sig)
+    publish(f"{BASE}/state", json.dumps(state), dry=dry)
+
+
+if __name__ == "__main__":
+    main()

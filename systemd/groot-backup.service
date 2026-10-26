@@ -1,0 +1,6 @@
+[Unit]
+Description=Groot nightly backup
+After=docker.service
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/groot-backup

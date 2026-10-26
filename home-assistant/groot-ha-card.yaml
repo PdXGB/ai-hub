@@ -1,0 +1,164 @@
+# Groot dashboard card: built-in HA cards only (no HACS). Needs the groot-mon MQTT device.
+# Dashboard > Edit > + Add card > Manual > paste everything below.
+# Temperature gauges assume HA shows °F (yellow 162 °F = 72 °C, red 180 °F = 82 °C); for °C use min 20, max 90, yellow 72, red 82.
+type: vertical-stack
+cards:
+  # ── Header: name + status badges ─────────────────────────────────────
+  - type: heading
+    heading: Groot
+    icon: mdi:server-network
+    badges:
+      - type: entity
+        entity: binary_sensor.groot_online
+        show_state: true
+        color: green
+      - type: entity
+        entity: binary_sensor.groot_security
+        show_state: true
+        color: red
+      - type: entity
+        entity: sensor.groot_cloud_spend_30_days
+        icon: mdi:cash
+        show_state: true
+      - type: entity
+        entity: binary_sensor.groot_reboot_required
+        name: Reboot
+        icon: mdi:restart-alert
+        color: orange
+        visibility:
+          - condition: state
+            entity: binary_sensor.groot_reboot_required
+            state: "on"
+
+  # ── Problems: only appears when something is wrong ───────────────────
+  - type: conditional
+    conditions:
+      - condition: or
+        conditions:
+          - { condition: state, entity: binary_sensor.groot_online, state_not: "on" }
+          - { condition: state, entity: binary_sensor.groot_security, state: "on" }
+          - { condition: state, entity: binary_sensor.groot_gpu, state: "off" }
+          - { condition: state, entity: binary_sensor.groot_ollama, state: "off" }
+          - { condition: state, entity: binary_sensor.groot_litellm, state: "off" }
+          - { condition: state, entity: binary_sensor.groot_comfyui, state: "off" }
+          - { condition: state, entity: binary_sensor.groot_all_containers, state: "off" }
+          - { condition: state, entity: binary_sensor.groot_disks, state: "off" }
+          - { condition: state, entity: binary_sensor.groot_backups, state: "off" }
+    card:
+      type: markdown
+      content: >-
+        {% set ns = namespace(p=[]) %}
+        {% if not is_state('binary_sensor.groot_online', 'on') %}{% set ns.p = ns.p + ['Not reporting for 3+ minutes'] %}{% endif %}
+        {% for e, n in [('gpu', 'GPU missing or nvidia-smi failing'), ('ollama', 'Ollama down'), ('litellm', 'LiteLLM down'), ('comfyui', 'ComfyUI down')] %}
+        {% if is_state('binary_sensor.groot_' ~ e, 'off') %}{% set ns.p = ns.p + [n] %}{% endif %}
+        {% endfor %}
+        {% for s in states.sensor | selectattr('entity_id', 'search', '^sensor\.groot_container_') | rejectattr('entity_id', 'search', 'updates') %}
+        {% if s.state not in ['running', 'unavailable', 'unknown'] %}{% set ns.p = ns.p + [s.name | replace('Groot Container ', '') ~ ': ' ~ s.state] %}{% endif %}
+        {% endfor %}
+        {% if is_state('binary_sensor.groot_disks', 'off') %}
+        {% for m, pct in (state_attr('binary_sensor.groot_disks', 'items') or {}).items() if pct is none or pct >= 85 %}{% set ns.p = ns.p + ['Disk ' ~ m ~ ': ' ~ (pct ~ '%' if pct is not none else 'unreadable')] %}{% endfor %}
+        {% endif %}
+        {% for b in state_attr('binary_sensor.groot_backups', 'items') or [] %}{% set ns.p = ns.p + ['Backup: ' ~ b] %}{% endfor %}
+        {% for a in state_attr('sensor.groot_security_alerts', 'items') or [] %}{% set ns.p = ns.p + ['🔐 ' ~ a] %}{% endfor %}
+        {% if ns.p %}<ha-alert alert-type="error" title="Groot needs attention">{{ ns.p | join('<br>') }}</ha-alert>{% endif %}
+        {% if is_state('binary_sensor.groot_security', 'on') %}<small>Security items you expected? Press <b>Acknowledge</b> below.</small>{% endif %}
+
+  # ── One row per GPU (temps in °F: yellow 72 °C, red 82 °C) ─────────
+  - type: heading
+    heading: RTX 3090 · main
+    heading_style: subtitle
+    icon: mdi:expansion-card
+    badges:
+      - { type: entity, entity: sensor.groot_vram_used_gb, icon: mdi:memory, show_state: true }
+      - type: entity
+        entity: sensor.groot_gpu_power
+        icon: mdi:flash
+        show_state: true
+        visibility:
+          - { condition: state, entity: sensor.groot_gpu_power, state_not: unknown }
+  - type: grid
+    columns: 3
+    square: false
+    cards:
+      - { type: gauge, entity: sensor.groot_gpu_temperature, name: Temp, min: 68, max: 194, needle: true, severity: { green: 68, yellow: 162, red: 180 } }
+      - { type: gauge, entity: sensor.groot_vram_used, name: VRAM, min: 0, max: 100, severity: { green: 0, yellow: 85, red: 95 } }
+      - { type: gauge, entity: sensor.groot_gpu_utilization, name: Load, min: 0, max: 100, severity: { green: 0, yellow: 80, red: 95 } }
+
+  - type: heading
+    heading: RTX 2060 · Home Assistant
+    heading_style: subtitle
+    icon: mdi:expansion-card
+    badges:
+      - { type: entity, entity: sensor.groot_ha_gpu_vram_used_gb, icon: mdi:memory, show_state: true }
+      - type: entity
+        entity: sensor.groot_ha_gpu_power
+        icon: mdi:flash
+        show_state: true
+        visibility:
+          - { condition: state, entity: sensor.groot_ha_gpu_power, state_not: unknown }
+  - type: grid
+    columns: 3
+    square: false
+    cards:
+      - { type: gauge, entity: sensor.groot_ha_gpu_temperature, name: Temp, min: 68, max: 194, needle: true, severity: { green: 68, yellow: 162, red: 180 } }
+      - { type: gauge, entity: sensor.groot_ha_gpu_vram_used, name: VRAM, min: 0, max: 100, severity: { green: 0, yellow: 85, red: 95 } }
+      - { type: gauge, entity: sensor.groot_ha_gpu_utilization, name: Load, min: 0, max: 100, severity: { green: 0, yellow: 80, red: 95 } }
+
+  # ── Service lights: icon colour = state ──────────────────────────────
+  - type: glance
+    show_state: false
+    state_color: true
+    columns: 7
+    entities:
+      - { entity: binary_sensor.groot_gpu, name: GPUs, icon: mdi:expansion-card }
+      - { entity: binary_sensor.groot_ollama, name: Ollama, icon: mdi:robot-outline }
+      - { entity: binary_sensor.groot_litellm, name: LiteLLM, icon: mdi:router-network }
+      - { entity: binary_sensor.groot_comfyui, name: Comfy, icon: mdi:movie-open-play }
+      - { entity: binary_sensor.groot_all_containers, name: Stack, icon: mdi:docker }
+      - { entity: binary_sensor.groot_disks, name: Disks, icon: mdi:harddisk }
+      - { entity: binary_sensor.groot_backups, name: Backups, icon: mdi:backup-restore }
+
+  # ── At a glance: one line per area ───────────────────────────────────
+  - type: markdown
+    content: |
+      {% macro v(e, nd=0) %}{% set x = states(e) %}{{ x | float(0) | round(nd) if is_number(x) else '–' }}{% endmacro %}
+      {% macro t(e) %}{{ v(e) }}{{ state_attr(e, 'unit_of_measurement') or '' }}{% endmacro %}
+      | | |
+      |:--|:--|
+      | <ha-icon icon="mdi:brain"></ha-icon> | {{ states('sensor.groot_ollama_loaded') }} |
+      | <ha-icon icon="mdi:cpu-64-bit"></ha-icon> | load {{ v('sensor.groot_cpu_load', 2) }} · {{ t('sensor.groot_cpu_temperature') }} · RAM {{ v('sensor.groot_ram_used') }}% · up since {{ as_timestamp(states('sensor.groot_last_boot'), 0) | timestamp_custom('%b %-d') }} |
+      | <ha-icon icon="mdi:docker"></ha-icon> | {{ states('sensor.groot_containers_up') }} running · fullest disk {{ v('sensor.groot_fullest_disk') }}% |
+      | <ha-icon icon="mdi:cash"></ha-icon> | ${{ v('sensor.groot_cloud_spend_30_days', 2) }} of $50 this 30 days ({{ v('sensor.groot_cloud_budget_used') }}%) |
+      | <ha-icon icon="mdi:backup-restore"></ha-icon> | local {{ v('sensor.groot_backup_age') }} h ago · NAS {{ v('sensor.groot_nas_backup_age') }} h ago |
+      | <ha-icon icon="mdi:package-up"></ha-icon> | {{ states('sensor.groot_container_updates') }} containers · {{ states('sensor.groot_apt_updates') }} apt · {{ states('sensor.groot_firmware_updates') }} firmware · checked {{ relative_time(as_datetime(states('sensor.groot_updates_checked'))) if as_datetime(states('sensor.groot_updates_checked')) else '–' }} ago |
+      | <ha-icon icon="mdi:shield-account"></ha-icon> | last SSH {{ states('sensor.groot_ssh_last_login') }} · {{ v('sensor.groot_ssh_failures_24h') }} failed / 24 h |
+
+  # ── Actions ──────────────────────────────────────────────────────────
+  - type: grid
+    columns: 2
+    square: false
+    cards:
+      - type: tile
+        entity: button.groot_acknowledge_alerts
+        name: Acknowledge
+        icon: mdi:shield-check
+        hide_state: true
+        tap_action:
+          action: perform-action
+          perform_action: button.press
+          target: { entity_id: button.groot_acknowledge_alerts }
+          confirmation:
+            text: >-
+              Accept groot's current ports and critical files as known-good,
+              and mark SSH/sudo alerts as seen?
+        icon_tap_action: { action: none }
+      - type: tile
+        entity: button.groot_check_updates_now
+        name: Check updates
+        icon: mdi:update
+        hide_state: true
+        tap_action:
+          action: perform-action
+          perform_action: button.press
+          target: { entity_id: button.groot_check_updates_now }
+        icon_tap_action: { action: none }

@@ -1,0 +1,6 @@
+#!/bin/bash
+# Free ComfyUI VRAM when its queue is empty
+q=$(curl -s --max-time 5 http://localhost:8188/queue) || exit 0
+busy=$(echo "$q" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('queue_running',[]))+len(d.get('queue_pending',[])))" 2>/dev/null)
+[ "$busy" = "0" ] && curl -s -X POST http://localhost:8188/free -H "Content-Type: application/json" -d '{"unload_models": true, "free_memory": true}' > /dev/null
+exit 0

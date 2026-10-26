@@ -1,0 +1,24 @@
+# 6. ComfyUI / LiteLLM / disks / backups problem for 10 minutes (these checks replaced groot-health)
+alias: Groot - service, disk or backup problem
+triggers:
+  - trigger: state
+    entity_id:
+      - binary_sensor.groot_comfyui
+      - binary_sensor.groot_litellm
+      - binary_sensor.groot_disks
+      - binary_sensor.groot_backups
+    to: "off"
+    for: "00:10:00"
+actions:
+  - action: notify.mobile_app_your_phone
+    data:
+      title: "Groot: {{ trigger.to_state.name }} problem"
+      message: >-
+        {% set e = trigger.entity_id %}
+        {% if e.endswith('backups') %}{{ (state_attr(e, 'items') or ['backup check failed']) | join(', ') }}
+        {% elif e.endswith('disks') %}{% for m, p in (state_attr(e, 'items') or {}).items() if p is none or p >= 85 %}{{ m }} {{ p ~ '%' if p is not none else 'unreadable' }}{{ ', ' if not loop.last }}{% endfor %}
+        {% else %}{{ trigger.to_state.name }} is down on groot.{% endif %}
+      data:
+        tag: "groot-{{ trigger.entity_id.split('_')[-1] }}"
+        priority: high
+mode: queued

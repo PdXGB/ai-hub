@@ -1,0 +1,8 @@
+[Unit]
+Description=groot-mon: publish health/security to Home Assistant
+After=docker.service network-online.target
+[Service]
+Type=oneshot
+Environment=HOME=/root
+ExecStart=/usr/local/bin/groot-mon
+TimeoutStartSec=120
