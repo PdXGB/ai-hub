@@ -137,14 +137,16 @@ Each chat adds its row when it has: (1) saved its handoff and all files to `_han
 
 Old commits contain a NAS hostname and a personal name, so the public repo starts from one clean commit. All steps are in GitHub Desktop, Explorer and GitHub.com; no git commands.
 
-- [ ] 1. Commit and push both repos (public and `_handoffs`). Have a chat run the leak audit and link check one last time: PASS. (Chat 09: leak PASS, links PASS, extended audit clean, 59 files to commit.)
+- [ ] 1. Commit and push both repos (public and `_handoffs`). Have a chat run the leak audit and link check one last time: PASS. (Chat 09: leak PASS, links PASS, extended audit clean, 58 files to commit.)
 - [ ] 2. GitHub.com → `groot-ai-hub` → Settings → rename it to `groot-ai-hub-old` (stays private; it's the backup until step 8).
-- [ ] 3. GitHub Desktop → select `groot-ai-hub` → Repository → **Remove** (removes it from Desktop only; files stay).
-- [ ] 4. Explorer → `C:\Users\<you>\GitHub\groot-ai-hub` → View → show hidden items → delete the top-level **`.git`** folder only. **Not** `_handoffs\.git` (the private notes repo).
-- [ ] 5. GitHub Desktop → File → Add local repository → choose that folder → click **create a repository** → name `groot-ai-hub`, Git ignore and License **None** (the files already exist) → Create. Check File → Options → Git still shows the noreply email.
-- [ ] 6. GitHub Desktop may commit every file right away as "Initial commit"; if it shows them under Changes instead, commit as `groot-ai-hub: initial public release`. Either way, **before publishing**, have the chat read the new `.git` (files only) and confirm: one commit, noreply author email, 59 files, no `_handoffs/`, `staging/` or `.env` (only `.env.example`).
+- [x] 3. GitHub Desktop → select `groot-ai-hub` → Repository → **Remove** (removes it from Desktop only; files stay).
+- [x] 4. Explorer → `C:\Users\<you>\GitHub\groot-ai-hub` → View → show hidden items → delete the top-level **`.git`** folder only. **Not** `_handoffs\.git` (the private notes repo).
+- [x] 5. GitHub Desktop → File → Add local repository → choose that folder → click **create a repository** → name `groot-ai-hub`, Git ignore and License **None** (the files already exist) → Create. Check File → Options → Git still shows the noreply email.
+- [x] 6. GitHub Desktop may commit every file right away as "Initial commit"; if it shows them under Changes instead, commit as `groot-ai-hub: initial public release`. Either way, **before publishing**, have the chat read the new `.git` (files only) and confirm: one commit, noreply author email, 58 files, no `_handoffs/`, `staging/` or `.env` (only `.env.example`).
 - [ ] 7. Publish repository → name `groot-ai-hub`, **keep it private** → Publish. Check the files on GitHub.com, then Settings → Change visibility → **Public**.
 - [ ] 8. Once it looks right, delete `groot-ai-hub-old` (Settings → Delete). The folder path stays the same, so the Claude folder connection and `_handoffs` keep working.
+
+_Chat 09 verified the new `.git` before publishing: 1 commit ("Initial commit", no parent), noreply author, 58 files identical to the working tree, no forbidden paths, 73 objects scanned with no NAS name, domain, IP or GPU UUID._
 
 ## Automations to review and install
 
