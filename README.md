@@ -35,8 +35,8 @@ Home Assistant voice reaches its model through LiteLLM's `local-ha` route, so it
 | RAM | 128 GB DDR4 |
 | GPU 1 | RTX 3090 Founders Edition, top x16 slot, power-limited to 325 W |
 | GPU 2 | RTX 2060 12GB, chipset x16 slot (x4 electrical), dedicated to Home Assistant |
-| PSU | Corsair 1000 W 80+ Bronze, modular |
-| NAS (separate box) | Synology DS1618+ plus expansion unit; off-box target for the nightly backups (SMB 3) |
+| PSU | 1000 W 80+ Bronze |
+| NAS (separate box) | Synology DS1618+ plus a DX517 expansion unit; off-box target for the nightly backups (SMB 3) |
 | OS | Ubuntu 26.04.1 LTS, kernel 7.0 |
 | Driver | NVIDIA open kernel module 595.91.07 |
 | Containers | Docker 29.9, nvidia-container-toolkit 1.20.1 |

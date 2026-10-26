@@ -8,7 +8,7 @@
 | CPU | Intel Core i7-10700KF | No iGPU, so a GPU must be installed to get video output |
 | RAM | 128 GB DDR4 | Large models can spill to system RAM; slow, but they still run |
 | NIC | Realtek RTL8125 2.5GbE (onboard) | |
-| PSU | Corsair 1000 W 80+ Bronze, modular (exact model TBD) | Full GPU load is ~325 W + ~184 W plus CPU; plan on 850 W or more |
+| PSU | 1000 W 80+ Bronze | Full GPU load is ~325 W + ~184 W plus CPU; plan on 850 W or more |
 
 ## GPUs
 
@@ -62,8 +62,8 @@ The sizes are simply the drives that were on hand; the jobs were assigned to fit
 | NAS | Synology DS1618+ (6-bay), on the last DSM release Synology supports for it |
 | System drives | 2 × 2 TB SSD, mirrored |
 | Other bays | 14 TB HDDs |
-| Expansion | External expansion unit, every bay filled with 10 TB HDDs |
-| Drive make | All Seagate NAS-grade; series _TODO: confirm_ |
+| Expansion | Synology DX517 expansion unit, every bay filled with 10 TB HDDs |
+| Drive make | Seagate NAS drives |
 | Role for the server | Off-box copy of the nightly backups (a shared folder over SMB 3) |
 
 The server keeps seven nightly backups on its own 1 TB drive, then mirrors them to a shared folder on the NAS over SMB 3. The share is mounted at `/mnt/nas` by a systemd automount, and the server logs in with a dedicated NAS account used only for backups. If the NAS is down, the local backup still runs and aihub-mon raises a "Backups" alert once the NAS copy is more than 27 h old. Setup, fstab line and password rotation: [10-backups.md](10-backups.md).
