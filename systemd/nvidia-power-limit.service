@@ -1,13 +1,13 @@
 [Unit]
-Description=Set NVIDIA GPU power limit
+Description=Set NVIDIA GPU power limits (per card)
 After=nvidia-persistenced.service
 Wants=nvidia-persistenced.service
 
 [Service]
 Type=oneshot
-# GPU_MAIN_UUID and GPU_MAIN_POWER_LIMIT come from /etc/aihub/gpu.env (written by setup.sh)
-EnvironmentFile=/etc/aihub/gpu.env
-ExecStart=/usr/bin/nvidia-smi -i ${GPU_MAIN_UUID} -pl ${GPU_MAIN_POWER_LIMIT}
+# Reads GPU_<ROLE>_UUID / GPU_<ROLE>_POWER_LIMIT from /etc/aihub/gpu.env (written by setup.sh).
+# An empty limit leaves that card at stock. Re-apply after editing: sudo systemctl restart nvidia-power-limit
+ExecStart=/usr/local/bin/aihub-gpu-power
 RemainAfterExit=yes
 
 [Install]

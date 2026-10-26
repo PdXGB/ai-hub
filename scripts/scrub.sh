@@ -58,7 +58,7 @@ for d in comfyui.service.d nvidia-persistenced.service.d; do
     mkdir -p "$OUT/systemd/$d"; cp -a /etc/systemd/system/$d/*.conf "$OUT/systemd/$d/" && echo "  + /etc/systemd/system/$d/"
   fi
 done
-for s in aihub-backup aihub-brief aihub-mon comfyui-idle-free; do
+for s in aihub-backup aihub-brief aihub-gpu-power aihub-mon comfyui-idle-free; do
   [ -e "/usr/local/bin/$s" ] && cp_if "/usr/local/bin/$s" "$OUT/host/bin/$s"
 done
 cp_if /etc/docker/daemon.json                 "$OUT/host/docker-daemon.json"

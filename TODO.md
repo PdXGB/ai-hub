@@ -31,6 +31,7 @@ Each chat adds its row when it has: (1) saved its handoff and all files to `_han
 | 08 | Docs: 02 Ubuntu/NVIDIA, 03 Docker stack, 06–11 feature docs (routing, RAG, ComfyUI, monitoring, backups, updates), docs/05 §8 HA MCP; `open-webui/` (ask_model v0.2.1, genericized assistant prompt); README Quick start via setup.sh; TZ variable; monthly-update/scrub/docs fixes | `chat-08-docs.md` | `files/chat-08-docs/`: linkcheck.py, leak.sh | Yes | **Yes** |
 | 09 | Review pass + fixes; update-image pre-update backups, setup.sh daemon.json merge + /srv/ai ownership; restore test (docs/10 §4); `pcie_aspm=off` proven required; repo re-created clean and published as `ai-hub`; full neutral rename to `aihub` (repo + server, via a tested migration script); docs/01 drive rationale | `chat-09-review-release.md` | `files/chat-09-review-release/`: migrate-to-aihub.sh, recreate-public-repo.ps1, ha-ready/, pre-rename/ snapshot, next-chat-prompt.md | Yes | **Yes** |
 | 10 | Health check; TODO cleanup after the rename; direct server access over SSH for Claude sessions; GPU audit re-run → docs/04 after-install table + idle-link fix; future plans (server repo mirror, chat archive, per-card power limits, feature ideas) | `chat-10-ops.md` | `files/chat-10-ops/`: raw GPU audit, next-chat prompts (11 features, 12 GPU power) | Yes | **Yes** |
+| 11 | Feature ideas: inventory, read-only server checks, web research, ranked list; 12 picks added to "Automations to review and install" (nothing installed) | `chat-11-features.md` | `files/chat-11-features/`: ranked ideas table, next-chat prompt | Yes | **Yes** |
 
 ## Done
 
@@ -169,9 +170,21 @@ _Chat 09 verified the new `.git` before publishing: 1 commit ("Initial commit", 
 
 ## Automations to review and install
 
-- [ ] **Feature ideas (chat 11):** investigate what else is worth adding besides the morning brief (automations, n8n flows, HA voice features, monitoring, ComfyUI uses), ranked by value vs effort and risk to the repo/server match. Output: a short list with a recommendation, added below as new items. Research and planning only; nothing installed
+- [x] **Feature ideas (chat 11):** inventory, read-only server checks and web research done; PdXGB kept the 12 items at the end of this list, ranked (first three recommended). Ideas not chosen are in the private notes. Nothing installed
 - [ ] **Morning brief** (`aihub-brief`): written in chat 01, never installed. Review, decide, install; scrub then collects it.
 - [ ] **Photo-to-video n8n form:** works on the LAN; uploads through the Cloudflare tunnel never reach n8n. Rebuild to respond immediately plus a "latest video" link (Cloudflare's 100 s limit).
+- [ ] **Restore drill (monthly), recommended:** script + timer restores the newest n8n and LiteLLM dumps into a scratch `postgres:17`, compares row counts with live, test-reads `aihub-config.tar.gz` and checks the NAS copy matches; result as an aihub-mon sensor plus an HA alert. Needs an exemption so the scratch container doesn't trip the rogue-container alert. Full sandbox → install → scrub cycle (chat 11)
+- [ ] **HA voice regression test, recommended:** script sends ~20 fixed requests to `local-ha` with a frozen entity list and checks the tool calls without executing them (`keep_alive: -1`). Run it before swapping the HA model; gives the "confirm HA voice accuracy" item real data (chat 11)
+- [ ] **Open WebUI images via ComfyUI, recommended:** enable image generation with an exported Z-Image Turbo API workflow (saved in the repo). Test VRAM first: the 27B holds ~19 GB of the 3090. Then docs/08 §5 says it's live (today it's off) (chat 11)
+- [ ] **"Ask the build" knowledge collection:** this repo's docs plus device manuals, attached to the assistant model; embeddings stay local ([docs/07](docs/07-knowledge-base.md)) (chat 11)
+- [ ] **Cloud spend alert:** HA automation 7, phone alert when `Cloud budget used` passes 80% of the $50 total, or any route in the `Cloud spend 30 days` attributes passes 80% of its $25 (aihub-mon already publishes both; HA side only) (chat 11)
+- [ ] **Camera snapshot descriptions:** camera or doorbell event in HA → snapshot → `local-fast` (the 27B has vision) → phone notification with a one-line description. Local only. First pick HA AI Task / an integration vs an n8n flow (chat 11)
+- [ ] **Video upgrades (ComfyUI):** frame interpolation + upscale in the Wan 2.2 workflow; trial LTX-2.3 (synced audio). Pin custom node versions; docs/08 (chat 11)
+- [ ] **Kokoro TTS for Open WebUI:** OpenAI-compatible TTS container (CPU, or the HA GPU if it fits in its ~4 GB headroom) for voice/call mode; compose + docs/03 (chat 11)
+- [ ] **Weekly server report:** Sunday summary (uptime, backups, spend per route, pending updates, alerts) written by a local model and pushed to the phone; n8n or Open WebUI Automations; share code with the morning brief (chat 11)
+- [ ] **Frigate on the HA GPU:** reads the existing camera NVR streams; the cameras already detect on their own, so the value is searchable review and GenAI summaries via the 27B. ~1.5–2 GB of the 2060; recordings disk to be decided (chat 11)
+- [ ] **Grafana dashboards:** Prometheus + node and GPU exporters for history graphs (good video visuals); overlaps aihub-mon; 3–4 new containers and ports (aihub-mon baseline) (chat 11)
+- [ ] **"How's the server?" voice answer:** one template sensor summarizing aihub-mon, exposed to Assist, in the prompt's fast-changing section (chat 11)
 
 ## Future: repos and chat archive on the server (planned in chat 10, not started)
 

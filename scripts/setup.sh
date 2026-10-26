@@ -13,8 +13,8 @@
 #                         update-image.sh, monthly-update.sh
 #                         (/srv/ai is owned by the sudo user; .env stays mode 600)
 #   /srv/models, /srv/data, /srv/backup   data directories, /srv/backup/pre-update
-#   /etc/aihub/gpu.env GPU UUIDs + power limit for the systemd units
-#   /usr/local/bin        aihub-backup, aihub-mon, comfyui-idle-free
+#   /etc/aihub/gpu.env    GPU UUIDs + a power limit per card for the systemd units
+#   /usr/local/bin        aihub-backup, aihub-gpu-power, aihub-mon, comfyui-idle-free
 #   /etc/...              docker daemon.json (log rotation merged into an existing one),
 #                         unattended-upgrades NVIDIA blacklist,
 #                         aihub-mon.env, MQTT login for aihub-mon (optional)
@@ -23,7 +23,8 @@
 #
 # Re-runs are safe: existing files are never overwritten. Missing files are
 # created, empty or missing .env variables are filled in, and anything that
-# differs from the repo is listed for you to review. One exception: if
+# differs from the repo is listed for you to review (gpu.env: missing keys
+# are added, existing values kept). One exception: if
 # /etc/docker/daemon.json lacks log-driver/log-opts, they are added (the
 # original is kept as daemon.json.pre-setup).
 #
@@ -99,7 +100,7 @@ envval() { [ -f "$2" ] && sed -n "s/^$1=//p" "$2" | tail -1 || true; }
 # --------------------------------------------------------------------------- detect
 hdr "Detecting hardware"
 GPU_ROWS=""
-if command -v nvidia-smi >/dev/null && GPU_ROWS=$(nvidia-smi --query-gpu=memory.total,uuid,name,power.default_limit --format=csv,noheader,nounits 2>/dev/null); then
+if command -v nvidia-smi >/dev/null && GPU_ROWS=$(nvidia-smi --query-gpu=memory.total,uuid,name,power.default_limit,power.min_limit,power.max_limit --format=csv,noheader,nounits 2>/dev/null); then
   say "$GPU_ROWS" | sed 's/^/  GPU: /'
 else
   say "  nvidia-smi not available: GPU UUIDs will be asked for."
@@ -109,7 +110,9 @@ SORTED=$(printf '%s\n' "$GPU_ROWS" | grep -v '^$' | sort -t, -k1,1nr || true)
 DET_MAIN=$(printf '%s\n' "$SORTED" | sed -n 1p | awk -F', ' '{print $2}' || true)
 DET_HA=$(printf '%s\n' "$SORTED" | sed -n 2p | awk -F', ' '{print $2}' || true)
 DET_HA=${DET_HA:-$DET_MAIN}
-DET_PL=$(printf '%s\n' "$SORTED" | sed -n 1p | awk -F', ' 'NF>=4 {printf "%d", $4}' || true)
+# power limits per card: gpuw UUID FIELD(4 default, 5 min, 6 max) -> whole watts, empty if unknown
+gpuw() { printf '%s\n' "$GPU_ROWS" | awk -F', ' -v u="$1" -v f="$2" '$2==u && $f ~ /^[0-9.]+$/ {printf "%d", $f+0.5}' | head -1; }
+gpuname() { printf '%s\n' "$GPU_ROWS" | awk -F', ' -v u="$1" '$2==u {print $3}' | head -1; }
 DET_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -1 || true)
 DET_NET=$(ip -o -4 addr show 2>/dev/null | awk -v ip="$DET_IP" '{split($4,a,"/"); if (a[1]==ip) print $4}' | head -1 || true)
 [ -n "$DET_NET" ] && DET_NET=$(python3 -c "import ipaddress,sys; print(ipaddress.ip_interface(sys.argv[1]).network)" "$DET_NET")
@@ -131,7 +134,56 @@ need ANTHROPIC_API_KEY && ask ANTHROPIC_API_KEY "Anthropic API key (blank = skip
 need GEMINI_API_KEY    && ask GEMINI_API_KEY    "Gemini API key (blank = skip Gemini)" "" secret
 need XAI_API_KEY       && ask XAI_API_KEY       "xAI API key (blank = skip Grok)" "" secret
 [ -e "$AI/litellm/config.yaml" ] || { ask CLOUD_BUDGET "Monthly cloud budget, all providers, USD" "50"; ask ROUTE_BUDGET "Monthly budget per cloud route, USD" "25"; }
-[ -e "$ROOT/etc/aihub/gpu.env" ] || ask GPU_MAIN_POWER_LIMIT "Main GPU power limit in watts (card default ${DET_PL:-unknown})" "${DET_PL:-}"
+# Power limit per card. Suggested = POWER_PCT % of the card's stock limit, rounded to 5 W
+# (325 W on a 350 W RTX 3090): less power and heat for a few % at most.
+POWER_PCT=93
+GPUENV="$ROOT/etc/aihub/gpu.env"
+has_key() { [ -f "$GPUENV" ] && grep -q "^$1=" "$GPUENV"; }   # key present (even empty) = keep
+ask_power() {   # ask_power VAR "label" UUID
+  local var=$1 label=$2 uuid=$3 def mn mx sug ans name
+  def=$(gpuw "$uuid" 4); mn=$(gpuw "$uuid" 5); mx=$(gpuw "$uuid" 6); name=$(gpuname "$uuid")
+  sug=""
+  if [ -n "$def" ]; then
+    sug=$(( (def * POWER_PCT + 250) / 500 * 5 ))
+    [ -n "$mn" ] && [ "$sug" -lt "$mn" ] && sug=$mn
+    [ -n "$mx" ] && [ "$sug" -gt "$mx" ] && sug=$mx
+  fi
+  pl_ok() {   # empty, or a whole number within min..max (when known)
+    [ -z "$1" ] && return 0
+    case "$1" in *[!0-9]*) say "    Not a whole number of watts: $1"; return 1 ;; esac
+    if { [ -n "$mn" ] && [ "$1" -lt "$mn" ]; } || { [ -n "$mx" ] && [ "$1" -gt "$mx" ]; }; then
+      say "    $1 W is outside this card's range ${mn:-?}-${mx:-?} W"; return 1
+    fi
+  }
+  if [ -n "${!var+x}" ]; then   # answered ahead of time: must be valid
+    pl_ok "${!var}" || { echo "$var=${!var} is not valid for $label. Fix it and re-run." >&2; exit 1; }
+    return
+  fi
+  if [ "$INTERACTIVE" != 1 ]; then printf -v "$var" '%s' "$sug"; return; fi
+  if [ -n "$def" ]; then
+    say "  $label${name:+ ($name)}: stock $def W, allowed ${mn:-?}-${mx:-?} W."
+    say "    Suggested $sug W ($POWER_PCT% of stock): saves power and heat for a few % of speed at most."
+  else
+    say "  $label: the card's limits are unknown (nvidia-smi didn't report them); the value isn't checked."
+  fi
+  while :; do
+    read -r -p "    Power limit in W (Enter = ${sug:-stock}, a number, or 'stock' to leave it alone): " ans
+    case "$ans" in "") ans=$sug ;; stock|STOCK|Stock) ans="" ;; esac
+    pl_ok "$ans" && break
+  done
+  printf -v "$var" '%s' "$ans"
+}
+PM_UUID=${GPU_MAIN_UUID:-$(envval GPU_MAIN_UUID "$EXISTING_ENV")}
+PH_UUID=${GPU_HA_UUID:-$(envval GPU_HA_UUID "$EXISTING_ENV")}
+if [ -f "$GPUENV" ]; then   # an existing gpu.env keeps its UUIDs
+  PM_UUID=$(envval GPU_MAIN_UUID "$GPUENV"); has_key GPU_HA_UUID && PH_UUID=$(envval GPU_HA_UUID "$GPUENV")
+fi
+has_key GPU_MAIN_POWER_LIMIT || ask_power GPU_MAIN_POWER_LIMIT "Main GPU power limit" "$PM_UUID"
+if [ -n "$PH_UUID" ] && [ "$PH_UUID" != "$PM_UUID" ]; then
+  has_key GPU_HA_POWER_LIMIT || ask_power GPU_HA_POWER_LIMIT "HA GPU power limit" "$PH_UUID"
+else
+  GPU_HA_POWER_LIMIT=""   # one GPU: the main card's limit applies
+fi
 [ -e "$ROOT/etc/aihub-mon.env" ] || ask ALLOWED_NETS "Networks allowed to SSH in without an alert (space separated)" "${DET_NET:+$DET_NET }127.0.0.0/8 ::1/128 fe80::/10"
 [ -e "$ROOT/etc/aihub-mon.env" ] || ask NAS_BACKUP_DIR "Off-box backup folder (NAS mount; blank = none)" "/mnt/nas/aihub"
 if [ ! -e "$ROOT/root/.config/mosquitto_pub" ]; then
@@ -235,14 +287,31 @@ done
 
 # --------------------------------------------------------------------------- host files
 hdr "Host files"
-if [ ! -e "$ROOT/etc/aihub/gpu.env" ]; then
-  [ -n "${GPU_MAIN_UUID:-}" ] || GPU_MAIN_UUID=$(envval GPU_MAIN_UUID "$EXISTING_ENV")
-  place_text "$ROOT/etc/aihub/gpu.env" 644 < <(printf 'GPU_MAIN_UUID=%s\nGPU_MAIN_POWER_LIMIT=%s\nCUDA_DEVICE_ORDER=PCI_BUS_ID\nCUDA_VISIBLE_DEVICES=%s\n' \
-    "$GPU_MAIN_UUID" "${GPU_MAIN_POWER_LIMIT:-}" "$GPU_MAIN_UUID") || true
-  [ -n "${GPU_MAIN_POWER_LIMIT:-}" ] || NOTES+=("GPU_MAIN_POWER_LIMIT is empty in /etc/aihub/gpu.env; nvidia-power-limit.service will fail until you set it.")
-else KEPT+=("$ROOT/etc/aihub/gpu.env"); fi
+# gpu.env: one UUID + power limit per card (empty limit = stock). Existing keys are never changed.
+[ -n "$PH_UUID" ] || PH_UUID=$PM_UUID
+if [ ! -e "$GPUENV" ]; then
+  place_text "$GPUENV" 644 < <(printf 'GPU_MAIN_UUID=%s\nGPU_MAIN_POWER_LIMIT=%s\nGPU_HA_UUID=%s\nGPU_HA_POWER_LIMIT=%s\nCUDA_DEVICE_ORDER=PCI_BUS_ID\nCUDA_VISIBLE_DEVICES=%s\n' \
+    "$PM_UUID" "${GPU_MAIN_POWER_LIMIT:-}" "$PH_UUID" "${GPU_HA_POWER_LIMIT:-}" "$PM_UUID") || true
+else
+  GE_ADD=""
+  for k in GPU_MAIN_POWER_LIMIT GPU_HA_UUID GPU_HA_POWER_LIMIT; do
+    has_key "$k" && continue
+    case $k in GPU_HA_UUID) v=$PH_UUID ;; *) v=${!k:-} ;; esac
+    GE_ADD+="$k=$v"$'\n'
+  done
+  if [ -n "$GE_ADD" ]; then
+    [ -z "$(tail -c1 "$GPUENV")" ] || echo >> "$GPUENV"
+    printf '# added by setup.sh\n%s' "$GE_ADD" >> "$GPUENV"
+    CREATED+=("$GPUENV  (added: $(printf '%s' "$GE_ADD" | cut -d= -f1 | tr '\n' ' '))")
+  else KEPT+=("$GPUENV"); fi
+fi
+for k in GPU_MAIN_POWER_LIMIT GPU_HA_POWER_LIMIT; do
+  r=main; [ "$k" = GPU_HA_POWER_LIMIT ] && r=HA
+  [ "$k" = GPU_HA_POWER_LIMIT ] && [ "$PH_UUID" = "$PM_UUID" ] && continue
+  [ -n "$(envval "$k" "$GPUENV")" ] || NOTES+=("$k is empty in /etc/aihub/gpu.env: the $r GPU stays at its stock power limit.")
+done
 
-for b in aihub-backup aihub-mon comfyui-idle-free; do place "$REPO/host/bin/$b" "$ROOT/usr/local/bin/$b" 755 || true; done
+for b in aihub-backup aihub-gpu-power aihub-mon comfyui-idle-free; do place "$REPO/host/bin/$b" "$ROOT/usr/local/bin/$b" 755 || true; done
 # daemon.json: nvidia-ctk usually creates it first, so add the log keys to it if they're missing
 DJ="$ROOT/etc/docker/daemon.json"
 if [ ! -e "$DJ" ]; then
@@ -318,8 +387,7 @@ if [ -z "$ROOT" ]; then
   systemctl daemon-reload
   for n in "${NEW_UNITS[@]}"; do
     case "$n" in
-      nvidia-power-limit.service) [ -n "${GPU_MAIN_POWER_LIMIT-x}" ] && systemctl enable --now "$n" || true ;;   # skip if asked and left empty
-      aihub-backup.timer|comfyui-idle-free.timer) systemctl enable --now "$n" ;;
+      nvidia-power-limit.service|aihub-backup.timer|comfyui-idle-free.timer) systemctl enable --now "$n" ;;
       aihub-mon.timer|aihub-mon-daily.timer|aihub-mon-listen.service) [ "$MQTT_OK" = 1 ] && systemctl enable --now "$n" ;;
       comfyui.service)
         if [ -x /srv/comfyui/.venv/bin/python ]; then systemctl enable --now "$n"

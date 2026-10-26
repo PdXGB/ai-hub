@@ -1,0 +1,36 @@
+#!/bin/bash
+# aihub-gpu-power - apply each GPU's power limit from /etc/aihub/gpu.env.
+# Run at boot by nvidia-power-limit.service; safe to run by hand (sudo).
+#
+# Each card has a role: GPU_<ROLE>_UUID and GPU_<ROLE>_POWER_LIMIT (watts),
+# e.g. MAIN and HA. MAIN goes first, the rest in file order.
+#   empty limit          the card keeps its stock limit (skipped)
+#   UUID seen already    skipped (one GPU: HA uses the same card as MAIN)
+# Every card is tried; the exit code is 1 if any set limit failed.
+#
+#   aihub-gpu-power [ENV_FILE]     (default /etc/aihub/gpu.env)
+set -uo pipefail
+ENV_FILE=${1:-/etc/aihub/gpu.env}
+[ -r "$ENV_FILE" ] || { echo "$ENV_FILE not readable" >&2; exit 1; }
+
+val() { sed -n "s/^$1=//p" "$ENV_FILE" | tail -1 | tr -d "\"' \r"; }
+roles=$( { echo MAIN; sed -n 's/^GPU_\([A-Z0-9]*\)_\(UUID\|POWER_LIMIT\)=.*/\1/p' "$ENV_FILE"; } | awk '!seen[$0]++')
+
+rc=0; done_uuids=" "
+for role in $roles; do
+  uuid=$(val "GPU_${role}_UUID"); pl=$(val "GPU_${role}_POWER_LIMIT")
+  if [ -z "$uuid" ]; then
+    if [ -n "$pl" ]; then echo "$role: GPU_${role}_POWER_LIMIT=$pl but no GPU_${role}_UUID" >&2; rc=1; fi
+    continue
+  fi
+  case "$done_uuids" in *" $uuid "*) echo "$role: same card as an earlier role, skipped"; continue ;; esac
+  done_uuids+="$uuid "
+  if [ -z "$pl" ]; then echo "$role: stock limit (GPU_${role}_POWER_LIMIT empty)"; continue; fi
+  case "$pl" in *[!0-9.]*|.*|*.*.*) echo "$role: GPU_${role}_POWER_LIMIT='$pl' is not a number" >&2; rc=1; continue ;; esac
+  if nvidia-smi -i "$uuid" -pl "$pl" >/dev/null; then
+    echo "$role: $pl W"
+  else
+    echo "$role: setting $pl W failed (nvidia-smi output above)" >&2; rc=1
+  fi
+done
+exit $rc
