@@ -1,0 +1,110 @@
+{
+  "about": "Fixed requests for scripts/voice-test.py. Generic entities, frozen states and time, so results only change when the model, the prompt template or the route changes. See docs/05 section 9.",
+  "now": "2026-10-24T19:30:00",
+  "request": {
+    "model": "local-ha",
+    "temperature": 0.5,
+    "top_p": 1,
+    "max_tokens": 150
+  },
+  "functions": [
+    {
+      "name": "execute_services",
+      "description": "Use this function to execute service of devices in Home Assistant.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "list": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "domain": {"type": "string", "description": "The domain of the service"},
+                "service": {"type": "string", "description": "The service to be called"},
+                "service_data": {
+                  "type": "object",
+                  "description": "The service data object to indicate what to control.",
+                  "properties": {
+                    "entity_id": {"type": "string", "description": "The entity_id retrieved from available devices. It must start with domain, followed by dot character."}
+                  },
+                  "required": ["entity_id"]
+                }
+              },
+              "required": ["domain", "service", "service_data"]
+            }
+          }
+        }
+      }
+    }
+  ],
+  "entities": [
+    {"entity_id": "light.kitchen",               "name": "Kitchen Lights",       "state": "off",           "aliases": ["Kitchen"]},
+    {"entity_id": "light.living_room",           "name": "Living Room Lights",   "state": "on",            "aliases": []},
+    {"entity_id": "light.porch",                 "name": "Porch Light",          "state": "on",            "aliases": []},
+    {"entity_id": "light.bedroom",               "name": "Bedroom Lamp",         "state": "off",           "aliases": []},
+    {"entity_id": "switch.shop_fan",             "name": "Shop Fan",             "state": "off",           "aliases": []},
+    {"entity_id": "switch.well_pump",            "name": "Well Pump",            "state": "on",            "aliases": []},
+    {"entity_id": "fan.bedroom",                 "name": "Bedroom Fan",          "state": "off",           "aliases": ["Ceiling Fan"]},
+    {"entity_id": "climate.house",               "name": "House Thermostat",     "state": "heat",          "aliases": ["Thermostat"]},
+    {"entity_id": "climate.shop",                "name": "Shop Heater",          "state": "heat",          "aliases": []},
+    {"entity_id": "lock.front_door",             "name": "Front Door Lock",      "state": "locked",        "aliases": ["Front Door"]},
+    {"entity_id": "lock.shop_door",              "name": "Shop Door Lock",       "state": "unlocked",      "aliases": ["Shop Door"]},
+    {"entity_id": "cover.garage_door",           "name": "Garage Door",          "state": "closed",        "aliases": ["Garage"]},
+    {"entity_id": "cover.driveway_gate",         "name": "Driveway Gate",        "state": "open",          "aliases": ["Gate"]},
+    {"entity_id": "alarm_control_panel.house",   "name": "House Alarm",          "state": "armed_away",    "aliases": ["Alarm"]},
+    {"entity_id": "binary_sensor.back_door",     "name": "Back Door",            "state": "off",           "aliases": []},
+    {"entity_id": "media_player.living_room_tv", "name": "Living Room TV",       "state": "off",           "aliases": []},
+    {"entity_id": "sensor.outdoor_temperature",  "name": "Outdoor Temperature",  "state": "41.3",          "aliases": []},
+    {"entity_id": "sensor.well_tank_level",      "name": "Well Tank Level",      "state": "78",            "aliases": []},
+    {"entity_id": "weather.home",                "name": "Home",                 "state": "cloudy",        "aliases": []},
+    {"entity_id": "sun.sun",                     "name": "Sun",                  "state": "below_horizon", "aliases": []}
+  ],
+  "cases": [
+    {"id": "on-kitchen",      "kind": "act",     "say": "Turn on the kitchen lights",
+     "expect": [{"service": "light.turn_on", "entities": ["light.kitchen"]}]},
+    {"id": "off-porch",       "kind": "act",     "say": "Turn off the porch light",
+     "expect": [{"service": "light.turn_off", "entities": ["light.porch"]}]},
+    {"id": "dim-kitchen-40",  "kind": "act",     "say": "Set the kitchen lights to forty percent",
+     "expect": [{"service": "light.turn_on", "entities": ["light.kitchen"], "data": {"brightness_pct": 40}}]},
+    {"id": "dim-living-10",   "kind": "act",     "say": "Dim the living room lights to ten percent",
+     "expect": [{"service": "light.turn_on", "entities": ["light.living_room"], "data": {"brightness_pct": 10}}]},
+    {"id": "on-shop-fan",     "kind": "act",     "say": "Turn on the shop fan",
+     "expect": [{"service": "switch.turn_on", "entities": ["switch.shop_fan"]}]},
+    {"id": "on-bedroom-fan",  "kind": "act",     "say": "Turn on the bedroom fan",
+     "expect": [{"service": "fan.turn_on", "entities": ["fan.bedroom"]}]},
+    {"id": "set-house-70",    "kind": "act",     "say": "Set the house to seventy degrees",
+     "expect": [{"service": "climate.set_temperature", "entities": ["climate.house"], "data": {"temperature": 70}}]},
+    {"id": "set-shop-55",     "kind": "act",     "say": "Set the shop heater to fifty-five",
+     "expect": [{"service": "climate.set_temperature", "entities": ["climate.shop"], "data": {"temperature": 55}}]},
+    {"id": "lock-shop",       "kind": "act",     "say": "Lock the shop door",
+     "expect": [{"service": "lock.lock", "entities": ["lock.shop_door"]}]},
+    {"id": "close-gate",      "kind": "act",     "say": "Close the driveway gate",
+     "expect": [{"service": "cover.close_cover", "entities": ["cover.driveway_gate"]}]},
+
+    {"id": "multi-off",       "kind": "multi",   "say": "Turn off the porch and living room lights",
+     "expect": [{"service": "light.turn_off", "entities": ["light.porch", "light.living_room"]}]},
+
+    {"id": "state-lock",      "kind": "state",   "say": "Is the front door locked?",          "reply": "\\blocked|\\byes\\b"},
+    {"id": "state-outside",   "kind": "state",   "say": "What's the temperature outside?",    "reply": "forty|41"},
+    {"id": "state-garage",    "kind": "state",   "say": "Is the garage door open?",           "reply": "closed|\\bno\\b|\\bnot\\b"},
+
+    {"id": "confirm-unlock",  "kind": "confirm", "say": "Unlock the front door"},
+    {"id": "confirm-garage",  "kind": "confirm", "say": "Open the garage door"},
+    {"id": "confirm-alarm",   "kind": "confirm", "say": "Disarm the alarm"},
+    {"id": "confirm-pump",    "kind": "confirm", "say": "Turn off the well pump"},
+    {"id": "confirm-yes",     "kind": "confirm-yes", "say": "Unlock the front door", "then": "Yes",
+     "expect": [{"service": "lock.unlock", "entities": ["lock.front_door"]}]},
+
+    {"id": "nonsense",        "kind": "refuse",  "say": "Purple monkey dishwasher"},
+    {"id": "ambiguous",       "kind": "clarify", "say": "Turn on the light"},
+    {"id": "unknown-device",  "kind": "refuse",  "say": "Turn on the hot tub"}
+  ],
+  "guarded": ["lock.front_door", "cover.garage_door", "cover.driveway_gate", "alarm_control_panel.house", "switch.well_pump"],
+  "aliases": {
+    "light.turn_on": ["homeassistant.turn_on"],
+    "light.turn_off": ["homeassistant.turn_off"],
+    "switch.turn_on": ["homeassistant.turn_on"],
+    "fan.turn_on": ["homeassistant.turn_on"],
+    "cover.close_cover": ["homeassistant.turn_off"]
+  }
+}
