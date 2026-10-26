@@ -1,0 +1,18 @@
+# 5. Someone acknowledged the server's alerts. If it wasn't you, that's worth knowing.
+alias: AIHub - alerts acknowledged
+triggers:
+  - trigger: state
+    entity_id: sensor.aihub_alerts_acknowledged
+conditions:
+  - condition: template
+    value_template: >-
+      {{ trigger.from_state is not none
+         and trigger.from_state.state not in ['unknown', 'unavailable']
+         and trigger.to_state.state not in ['unknown', 'unavailable', trigger.from_state.state] }}
+actions:
+  - action: notify.mobile_app_your_phone
+    data:
+      title: "AIHub alerts acknowledged"
+      message: "Security baseline reset at {{ as_timestamp(trigger.to_state.state) | timestamp_custom('%-I:%M %p') }}. If this wasn't you, check the server."
+      data:
+        tag: aihub-ack

@@ -1,6 +1,6 @@
 # 11 — Updates
 
-Nothing on groot updates itself in a way that can break the GPU stack. Security patches install automatically; the kernel, the NVIDIA driver and every container image move only when you run the monthly routine, one step at a time, with a backup and a way back.
+Nothing on the server updates itself in a way that can break the GPU stack. Security patches install automatically; the kernel, the NVIDIA driver and every container image move only when you run the monthly routine, one step at a time, with a backup and a way back.
 
 | Layer | How it updates | Automatic? |
 |---|---|---|
@@ -63,16 +63,16 @@ Guard rails:
 After the reboot:
 
 ```bash
-nvidia-smi && docker compose -f /srv/ai/compose.yaml ps && sudo /usr/local/bin/groot-mon --dry-run
+nvidia-smi && docker compose -f /srv/ai/compose.yaml ps && sudo /usr/local/bin/aihub-mon --dry-run
 ```
 
-`apt full-upgrade` rewrites files groot-mon watches (systemd units, for example), so expect a security alert. Check what changed, then acknowledge it ([docs/09](09-monitoring.md#2-security-tripwires)).
+`apt full-upgrade` rewrites files aihub-mon watches (systemd units, for example), so expect a security alert. Check what changed, then acknowledge it ([docs/09](09-monitoring.md#2-security-tripwires)).
 
 ## 4. Firmware
 
-- **UEFI Secure Boot revocation list (dbx)** and drive firmware: `fwupdmgr`. groot's dbx went from 20250902 to 20260707 this way, with a clean reboot and the driver intact.
+- **UEFI Secure Boot revocation list (dbx)** and drive firmware: `fwupdmgr`. This build's dbx went from 20250902 to 20260707 this way, with a clean reboot and the driver intact.
 - **BIOS:** MSI M-Flash, not fwupd. fwupd offers no BIOS or ME updates for this board.
 
 ## 5. Knowing when updates are waiting
 
-`groot-mon --daily` (04:23 every day) runs `update-image.sh --check`, `apt list --upgradable` and `fwupdmgr get-upgrades`, and publishes the counts to Home Assistant: `APT updates`, `Container updates`, `Firmware updates`, with the lists as attributes. The **Check updates now** button runs the same check on demand. See [docs/09](09-monitoring.md).
+`aihub-mon --daily` (04:23 every day) runs `update-image.sh --check`, `apt list --upgradable` and `fwupdmgr get-upgrades`, and publishes the counts to Home Assistant: `APT updates`, `Container updates`, `Firmware updates`, with the lists as attributes. The **Check updates now** button runs the same check on demand. See [docs/09](09-monitoring.md).

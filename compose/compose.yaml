@@ -42,7 +42,7 @@ services:
     image: ghcr.io/berriai/litellm:main-stable@sha256:74d0696a9f0afcc993c7659d246f0c542f003368298633e852228250779f1032
     restart: unless-stopped
     depends_on: [litellm-db, ollama]
-    ports: ["127.0.0.1:4000:4000", "${GROOT_LAN_IP}:4000:4000"]
+    ports: ["127.0.0.1:4000:4000", "${AIHUB_LAN_IP}:4000:4000"]
     volumes: ["./litellm/config.yaml:/app/config.yaml:ro"]
     command: ["--config", "/app/config.yaml", "--port", "4000"]
     environment:
@@ -124,7 +124,7 @@ services:
     image: lscr.io/linuxserver/faster-whisper:gpu@sha256:0f954616743a01cd5a7c7dc32d749873f5c03cfca38aab30c8160607cb4eb4a0
     restart: unless-stopped
     <<: *gpu_ha
-    ports: ["${GROOT_LAN_IP}:10300:10300"]
+    ports: ["${AIHUB_LAN_IP}:10300:10300"]
     volumes: ["/srv/data/whisper:/config"]
     environment:
       PUID: 1000
@@ -137,7 +137,7 @@ services:
   piper:
     image: lscr.io/linuxserver/piper:latest@sha256:b03c5e49b4ed899de5e4b7647d5a2395e6972bed0fe97215bc3ea3cbc0af94df
     restart: unless-stopped
-    ports: ["${GROOT_LAN_IP}:10200:10200"]
+    ports: ["${AIHUB_LAN_IP}:10200:10200"]
     volumes: ["/srv/data/piper:/config"]
     environment:
       PUID: 1000

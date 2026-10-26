@@ -1,4 +1,4 @@
-# 06 — Model routing: Groot and `ask_model`
+# 06 — Model routing: the assistant and `ask_model`
 
 **Local first, cloud when it's worth it.** Chat starts on a local model. It escalates to a cloud model, or to the big local one, only when that clearly improves the answer. It never escalates private data without being told to, and it stays inside a hard monthly budget.
 
@@ -7,8 +7,8 @@ Three pieces:
 | Piece | What it is | File |
 |---|---|---|
 | LiteLLM routes + budgets | The gateway, the route names, $25 per cloud route and $50 total per 30 days | [docs/03](03-docker-stack.md#5-litellm-routes-and-budgets) |
-| "Groot" model | An Open WebUI custom model on `local-fast` with a system prompt that knows the routes and the rules | [`open-webui/groot-system-prompt.md`](../open-webui/groot-system-prompt.md) |
-| `ask_model` tool | An Open WebUI tool that lets Groot hand a self-contained task to another route | [`open-webui/ask_model.py`](../open-webui/ask_model.py) |
+| Assistant model | An Open WebUI custom model on `local-fast` with a system prompt that knows the routes and the rules | [`open-webui/assistant-system-prompt.md`](../open-webui/assistant-system-prompt.md) |
+| `ask_model` tool | An Open WebUI tool that lets the assistant hand a self-contained task to another route | [`open-webui/ask_model.py`](../open-webui/ask_model.py) |
 
 ## 1. Escalation rules
 
@@ -50,14 +50,14 @@ What it does on every call:
 - **Context the other model lacks.** It adds a system message with today's date and "you have no tools; answer in this single reply", so cloud models don't claim to search or guess the date.
 - **Cost and status.** The chat shows "Asking claude…", then the time taken and the cost from LiteLLM's `x-litellm-response-cost` header. Budget errors come back as "over its budget, finish locally".
 
-## 3. The Groot model
+## 3. The assistant model
 
 Create it as a **separate** custom model (**Workspace → Models → +**) on top of `local-fast`, rather than editing `local-fast` itself. `local-fast` stays clean for n8n, Home Assistant and testing.
 
 | Setting | Value |
 |---|---|
 | Base model | `local-fast` |
-| System prompt | [`open-webui/groot-system-prompt.md`](../open-webui/groot-system-prompt.md); fill in "Who you work for" |
+| System prompt | [`open-webui/assistant-system-prompt.md`](../open-webui/assistant-system-prompt.md); fill in its name and "Who you work for" |
 | Tools | Ask Model |
 | Function Calling (Advanced Params) | **Native**: Qwen handles native tool calls far better than the prompt-based default |
 | Default features | Web Search on |
@@ -75,7 +75,7 @@ The prompt uses Open WebUI's `{{CURRENT_DATE}}` variable, so the model knows the
 | Memory | `search_memories`, `list_memories`, `list_memory_paths`, `read_memory_path`, `add_memory`, `update_memory`, `replace_memory_content`, `delete_memory` |
 | Ask the user | `ask_user` |
 
-On groot that's 22 built-in functions instead of the default 38. With `ask_model` and the Home Assistant MCP tools ([docs/05 §8](05-home-assistant.md#8-groot-controls-the-house-has-mcp-server)), Groot sees 46 tools. To check, ask Groot in a new chat to "list every tool you have, names only".
+On this build that's 22 built-in functions instead of the default 38. With `ask_model` and the Home Assistant MCP tools ([docs/05 §8](05-home-assistant.md#8-the-assistant-controls-the-house-has-mcp-server)), the assistant sees 46 tools. To check, ask it in a new chat to "list every tool you have, names only".
 
 **Tools bind when a chat starts.** After adding or editing a tool, start a new chat; old chats keep the tool set they started with.
 
@@ -83,13 +83,13 @@ On groot that's 22 built-in functions instead of the default 38. With `ask_model
 
 `gpt-oss:120b` doesn't fit in 24 GB. Ollama keeps attention on the 3090 and runs the MoE experts from system RAM:
 
-| Measure (groot) | Value |
+| Measure (this build) | Value |
 |---|---|
 | `ollama ps` | 21 GB, 6% / 94% CPU / GPU |
 | Container RAM | ~62 GB |
 | Cold load | 73 s |
 | Generation | 23.3 tok/s |
-| Groot → `ask_model local-deep` round trip, page cache warm | 32 s |
+| Assistant → `ask_model local-deep` round trip, page cache warm | 32 s |
 
 Loading it evicts the 27B. After `local-deep`'s 5-minute `keep_alive` it unloads and `local-fast` reloads, pinned again. For a long session on private data, pick `local-deep` from the model dropdown instead; that avoids swapping back and forth.
 
@@ -103,4 +103,4 @@ curl -s localhost:4000/v1/chat/completions -H "Authorization: Bearer <ask_model 
 docker exec ai-open-webui-1 python3 -c "import urllib.request;print(urllib.request.urlopen('http://litellm:4000/health/liveliness').read())"
 ```
 
-In a new Groot chat, ask for something that should escalate ("ask claude to review this config…") and something that shouldn't. Then try a fake key in a cloud request to see the blocker refuse it.
+In a new chat with the assistant model, ask for something that should escalate ("ask claude to review this config…") and something that shouldn't. Then try a fake key in a cloud request to see the blocker refuse it.

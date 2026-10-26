@@ -42,7 +42,7 @@ Changing the embedding model later means re-embedding every document, so pick it
 
 **Workspace → Knowledge → +**: create a collection per subject (for example vendor manuals, standards, safety data sheets) and upload files into it.
 
-Use a collection in a chat by typing `#` and picking it, or attach it to a custom model (such as Groot, [docs/06](06-model-routing.md)) so every chat with that model can search it.
+Use a collection in a chat by typing `#` and picking it, or attach it to a custom model (such as the assistant model, [docs/06](06-model-routing.md)) so every chat with that model can search it.
 
 ## 4. Check it
 

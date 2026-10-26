@@ -60,7 +60,7 @@ Its GPU anchor still uses `count: all`, or the image's `NVIDIA_VISIBLE_DEVICES=a
 
 ## Monitoring says the GPU is down after adding a second card
 
-A script that runs `nvidia-smi --query-gpu=...` and expects one line gets two, fails to parse them, and reports the GPU as missing. groot-mon did this and fired its "GPU problem" alert. Parse one line per GPU; see [04-multi-gpu.md](04-multi-gpu.md#6-monitoring-two-cards).
+A script that runs `nvidia-smi --query-gpu=...` and expects one line gets two, fails to parse them, and reports the GPU as missing. aihub-mon did this and fired its "GPU problem" alert. Parse one line per GPU; see [04-multi-gpu.md](04-multi-gpu.md#6-monitoring-two-cards).
 
 ## Grok has no web access through LiteLLM
 
@@ -82,6 +82,6 @@ cd /srv/ai && docker compose restart litellm
 
 The Extended OpenAI Conversation **prompt template must keep the Jinja `exposed_entities` block** (the CSV of entity IDs, names and states). Pasting a plain prompt over the whole template removes it, and the model no longer knows what exists. Edit around the block; don't replace it.
 
-## MQTT from groot to Home Assistant doesn't connect
+## MQTT from the server to Home Assistant doesn't connect
 
 Point `mosquitto_pub` at Home Assistant's **LAN address** (port 1883), not its Cloudflare hostname. A Cloudflare tunnel carries HTTP(S) only, not raw MQTT.

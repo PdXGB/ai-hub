@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# setup.sh - configure a groot-ai-hub server from this repo.
+# setup.sh - configure a ai-hub server from this repo.
 #
 # Run from the repo clone, after Ubuntu, the NVIDIA driver, Docker and the
 # NVIDIA container toolkit are installed and the model/data/backup disks are
@@ -13,11 +13,11 @@
 #                         update-image.sh, monthly-update.sh
 #                         (/srv/ai is owned by the sudo user; .env stays mode 600)
 #   /srv/models, /srv/data, /srv/backup   data directories, /srv/backup/pre-update
-#   /etc/groot-ai/gpu.env GPU UUIDs + power limit for the systemd units
-#   /usr/local/bin        groot-backup, groot-mon, comfyui-idle-free
+#   /etc/aihub/gpu.env GPU UUIDs + power limit for the systemd units
+#   /usr/local/bin        aihub-backup, aihub-mon, comfyui-idle-free
 #   /etc/...              docker daemon.json (log rotation merged into an existing one),
 #                         unattended-upgrades NVIDIA blacklist,
-#                         groot-mon.env, MQTT login for groot-mon (optional)
+#                         aihub-mon.env, MQTT login for aihub-mon (optional)
 #   systemd               units + drop-ins installed; timers enabled
 # It does NOT start the stack or pull models; it prints those steps at the end.
 #
@@ -46,7 +46,7 @@ while [ $# -gt 0 ]; do
 done
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-[ -f "$REPO/compose/compose.yaml" ] || { echo "Run this from the groot-ai-hub repo (compose/compose.yaml not found)." >&2; exit 1; }
+[ -f "$REPO/compose/compose.yaml" ] || { echo "Run this from the ai-hub repo (compose/compose.yaml not found)." >&2; exit 1; }
 if [ -z "$ROOT" ] && [ "$(id -u)" -ne 0 ]; then echo "Run with sudo." >&2; exit 1; fi
 command -v python3 >/dev/null || { echo "python3 is required." >&2; exit 1; }
 
@@ -103,7 +103,7 @@ if command -v nvidia-smi >/dev/null && GPU_ROWS=$(nvidia-smi --query-gpu=memory.
   say "$GPU_ROWS" | sed 's/^/  GPU: /'
 else
   say "  nvidia-smi not available: GPU UUIDs will be asked for."
-  NOTES+=("nvidia-smi didn't run. Install the driver (docs/02) and check /etc/groot-ai/gpu.env and the GPU_* lines in /srv/ai/.env.")
+  NOTES+=("nvidia-smi didn't run. Install the driver (docs/02) and check /etc/aihub/gpu.env and the GPU_* lines in /srv/ai/.env.")
 fi
 SORTED=$(printf '%s\n' "$GPU_ROWS" | grep -v '^$' | sort -t, -k1,1nr || true)
 DET_MAIN=$(printf '%s\n' "$SORTED" | sed -n 1p | awk -F', ' '{print $2}' || true)
@@ -120,7 +120,7 @@ EXISTING_ENV="$AI/.env"
 need() { [ -z "$(envval "$1" "$EXISTING_ENV")" ]; }   # true if .env lacks a value for $1
 
 hdr "Questions (Enter keeps the default; blank skips optional items)"
-need GROOT_LAN_IP  && ask GROOT_LAN_IP  "LAN IP for services Home Assistant uses (LiteLLM, Whisper, Piper)" "$DET_IP"
+need AIHUB_LAN_IP  && ask AIHUB_LAN_IP  "LAN IP for services Home Assistant uses (LiteLLM, Whisper, Piper)" "$DET_IP"
 need GPU_MAIN_UUID && ask GPU_MAIN_UUID "Main GPU UUID (LLMs, ComfyUI)" "$DET_MAIN"
 need GPU_HA_UUID   && ask GPU_HA_UUID   "HA GPU UUID (Whisper, ollama-ha; same as main if one GPU)" "${DET_HA:-${GPU_MAIN_UUID:-}}"
 need N8N_HOSTNAME  && ask N8N_HOSTNAME  "Public hostname for n8n via Cloudflare (e.g. n8n.example.com)" ""
@@ -131,12 +131,12 @@ need ANTHROPIC_API_KEY && ask ANTHROPIC_API_KEY "Anthropic API key (blank = skip
 need GEMINI_API_KEY    && ask GEMINI_API_KEY    "Gemini API key (blank = skip Gemini)" "" secret
 need XAI_API_KEY       && ask XAI_API_KEY       "xAI API key (blank = skip Grok)" "" secret
 [ -e "$AI/litellm/config.yaml" ] || { ask CLOUD_BUDGET "Monthly cloud budget, all providers, USD" "50"; ask ROUTE_BUDGET "Monthly budget per cloud route, USD" "25"; }
-[ -e "$ROOT/etc/groot-ai/gpu.env" ] || ask GPU_MAIN_POWER_LIMIT "Main GPU power limit in watts (card default ${DET_PL:-unknown})" "${DET_PL:-}"
-[ -e "$ROOT/etc/groot-mon.env" ] || ask ALLOWED_NETS "Networks allowed to SSH in without an alert (space separated)" "${DET_NET:+$DET_NET }127.0.0.0/8 ::1/128 fe80::/10"
-[ -e "$ROOT/etc/groot-mon.env" ] || ask NAS_BACKUP_DIR "Off-box backup folder (NAS mount; blank = none)" "/mnt/nas/groot"
+[ -e "$ROOT/etc/aihub/gpu.env" ] || ask GPU_MAIN_POWER_LIMIT "Main GPU power limit in watts (card default ${DET_PL:-unknown})" "${DET_PL:-}"
+[ -e "$ROOT/etc/aihub-mon.env" ] || ask ALLOWED_NETS "Networks allowed to SSH in without an alert (space separated)" "${DET_NET:+$DET_NET }127.0.0.0/8 ::1/128 fe80::/10"
+[ -e "$ROOT/etc/aihub-mon.env" ] || ask NAS_BACKUP_DIR "Off-box backup folder (NAS mount; blank = none)" "/mnt/nas/aihub"
 if [ ! -e "$ROOT/root/.config/mosquitto_pub" ]; then
-  ask MQTT_HOST "MQTT broker for groot-mon (Home Assistant's LAN IP; blank = skip monitoring)" ""
-  if [ -n "$MQTT_HOST" ]; then ask MQTT_USER "MQTT username" "groot"; ask MQTT_PASSWORD "MQTT password" "" secret; fi
+  ask MQTT_HOST "MQTT broker for aihub-mon (Home Assistant's LAN IP; blank = skip monitoring)" ""
+  if [ -n "$MQTT_HOST" ]; then ask MQTT_USER "MQTT username" "aihub"; ask MQTT_PASSWORD "MQTT password" "" secret; fi
 fi
 CLOUD_BUDGET=${CLOUD_BUDGET:-50}
 
@@ -189,7 +189,7 @@ PY
 chmod 600 "$EXISTING_ENV"
 case "$ENV_STATUS" in created) CREATED+=("$EXISTING_ENV") ;; kept) KEPT+=("$EXISTING_ENV") ;; *) CREATED+=("$EXISTING_ENV  ($ENV_STATUS)") ;; esac
 for v in $export_vars; do unset "$v"; done
-for v in GROOT_LAN_IP GPU_MAIN_UUID GPU_HA_UUID; do
+for v in AIHUB_LAN_IP GPU_MAIN_UUID GPU_HA_UUID; do
   [ -n "$(envval "$v" "$EXISTING_ENV")" ] || NOTES+=("$v is empty in /srv/ai/.env: set it before docker compose up (the stack won't start without it).")
 done
 
@@ -235,14 +235,14 @@ done
 
 # --------------------------------------------------------------------------- host files
 hdr "Host files"
-if [ ! -e "$ROOT/etc/groot-ai/gpu.env" ]; then
+if [ ! -e "$ROOT/etc/aihub/gpu.env" ]; then
   [ -n "${GPU_MAIN_UUID:-}" ] || GPU_MAIN_UUID=$(envval GPU_MAIN_UUID "$EXISTING_ENV")
-  place_text "$ROOT/etc/groot-ai/gpu.env" 644 < <(printf 'GPU_MAIN_UUID=%s\nGPU_MAIN_POWER_LIMIT=%s\nCUDA_DEVICE_ORDER=PCI_BUS_ID\nCUDA_VISIBLE_DEVICES=%s\n' \
+  place_text "$ROOT/etc/aihub/gpu.env" 644 < <(printf 'GPU_MAIN_UUID=%s\nGPU_MAIN_POWER_LIMIT=%s\nCUDA_DEVICE_ORDER=PCI_BUS_ID\nCUDA_VISIBLE_DEVICES=%s\n' \
     "$GPU_MAIN_UUID" "${GPU_MAIN_POWER_LIMIT:-}" "$GPU_MAIN_UUID") || true
-  [ -n "${GPU_MAIN_POWER_LIMIT:-}" ] || NOTES+=("GPU_MAIN_POWER_LIMIT is empty in /etc/groot-ai/gpu.env; nvidia-power-limit.service will fail until you set it.")
-else KEPT+=("$ROOT/etc/groot-ai/gpu.env"); fi
+  [ -n "${GPU_MAIN_POWER_LIMIT:-}" ] || NOTES+=("GPU_MAIN_POWER_LIMIT is empty in /etc/aihub/gpu.env; nvidia-power-limit.service will fail until you set it.")
+else KEPT+=("$ROOT/etc/aihub/gpu.env"); fi
 
-for b in groot-backup groot-mon comfyui-idle-free; do place "$REPO/host/bin/$b" "$ROOT/usr/local/bin/$b" 755 || true; done
+for b in aihub-backup aihub-mon comfyui-idle-free; do place "$REPO/host/bin/$b" "$ROOT/usr/local/bin/$b" 755 || true; done
 # daemon.json: nvidia-ctk usually creates it first, so add the log keys to it if they're missing
 DJ="$ROOT/etc/docker/daemon.json"
 if [ ! -e "$DJ" ]; then
@@ -277,9 +277,9 @@ PY
 fi
 place "$REPO/host/51unattended-nvidia" "$ROOT/etc/apt/apt.conf.d/51unattended-nvidia" || true
 
-if [ ! -e "$ROOT/etc/groot-mon.env" ]; then
-  place_text "$ROOT/etc/groot-mon.env" 600 < <(ALLOWED_NETS="$ALLOWED_NETS" CLOUD_BUDGET="$CLOUD_BUDGET" NAS_BACKUP_DIR="${NAS_BACKUP_DIR:-}" \
-    python3 - "$REPO/host/groot-mon.env.example" <<'PY'
+if [ ! -e "$ROOT/etc/aihub-mon.env" ]; then
+  place_text "$ROOT/etc/aihub-mon.env" 600 < <(ALLOWED_NETS="$ALLOWED_NETS" CLOUD_BUDGET="$CLOUD_BUDGET" NAS_BACKUP_DIR="${NAS_BACKUP_DIR:-}" \
+    python3 - "$REPO/host/aihub-mon.env.example" <<'PY'
 
 import os, re, sys
 s = open(sys.argv[1]).read()
@@ -289,15 +289,15 @@ s = re.sub(r'(?m)^NAS_BACKUP_DIR=.*$', 'NAS_BACKUP_DIR=%s' % os.environ["NAS_BAC
 sys.stdout.write(s)
 PY
 ) || true
-else KEPT+=("$ROOT/etc/groot-mon.env"); fi
+else KEPT+=("$ROOT/etc/aihub-mon.env"); fi
 
 MQTT_OK=0
 if [ -e "$ROOT/root/.config/mosquitto_pub" ]; then MQTT_OK=1; KEPT+=("$ROOT/root/.config/mosquitto_pub")
 elif [ -n "${MQTT_HOST:-}" ]; then
-  place_text "$ROOT/root/.config/mosquitto_pub" 600 < <(printf -- '-h %s\n-p 1883\n-u %s\n-P %s\n' "$MQTT_HOST" "${MQTT_USER:-groot}" "${MQTT_PASSWORD:-}") && MQTT_OK=1
-else NOTES+=("No MQTT broker given: groot-mon is installed but its timers stay off. Re-run setup.sh with MQTT_HOST set to enable it.")
+  place_text "$ROOT/root/.config/mosquitto_pub" 600 < <(printf -- '-h %s\n-p 1883\n-u %s\n-P %s\n' "$MQTT_HOST" "${MQTT_USER:-aihub}" "${MQTT_PASSWORD:-}") && MQTT_OK=1
+else NOTES+=("No MQTT broker given: aihub-mon is installed but its timers stay off. Re-run setup.sh with MQTT_HOST set to enable it.")
 fi
-command -v mosquitto_pub >/dev/null || NOTES+=("mosquitto_pub not found: sudo apt install mosquitto-clients (needed by groot-mon).")
+command -v mosquitto_pub >/dev/null || NOTES+=("mosquitto_pub not found: sudo apt install mosquitto-clients (needed by aihub-mon).")
 
 # --------------------------------------------------------------------------- systemd
 hdr "systemd units"
@@ -319,8 +319,8 @@ if [ -z "$ROOT" ]; then
   for n in "${NEW_UNITS[@]}"; do
     case "$n" in
       nvidia-power-limit.service) [ -n "${GPU_MAIN_POWER_LIMIT-x}" ] && systemctl enable --now "$n" || true ;;   # skip if asked and left empty
-      groot-backup.timer|comfyui-idle-free.timer) systemctl enable --now "$n" ;;
-      groot-mon.timer|groot-mon-daily.timer|groot-mon-listen.service) [ "$MQTT_OK" = 1 ] && systemctl enable --now "$n" ;;
+      aihub-backup.timer|comfyui-idle-free.timer) systemctl enable --now "$n" ;;
+      aihub-mon.timer|aihub-mon-daily.timer|aihub-mon-listen.service) [ "$MQTT_OK" = 1 ] && systemctl enable --now "$n" ;;
       comfyui.service)
         if [ -x /srv/comfyui/.venv/bin/python ]; then systemctl enable --now "$n"
         else NOTES+=("comfyui.service installed but not enabled: install ComfyUI into /srv/comfyui/.venv first, then: sudo systemctl enable --now comfyui"); fi ;;

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# groot GPU audit — read-only, changes nothing
+# aihub GPU audit — read-only, changes nothing
 sec(){ printf '\n===== %s =====\n' "$1"; }
 
 sec "SYSTEM"

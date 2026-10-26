@@ -1,5 +1,5 @@
 # Normalize text files and keep LF in the working tree on every OS.
-# Scripts and configs run on Ubuntu (groot); CRLF breaks bash shebangs.
+# Scripts and configs run on Ubuntu (the server); CRLF breaks bash shebangs.
 * text=auto eol=lf
 
 # Windows-only scripts (if any are ever added)

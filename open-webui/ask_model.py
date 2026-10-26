@@ -41,7 +41,7 @@ class Tools:
         )
         local_models: str = Field(
             default="local-fast,local-deep,local-ha",
-            description="Models that never leave groot (skip the secret check)",
+            description="Models that never leave the server (skip the secret check)",
         )
         block_secrets_to_cloud: bool = Field(
             default=True,

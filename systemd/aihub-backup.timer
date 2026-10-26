@@ -1,5 +1,5 @@
 [Unit]
-Description=Run Groot backup nightly
+Description=Run aihub backup nightly
 [Timer]
 OnCalendar=*-*-* 02:30:00
 Persistent=true

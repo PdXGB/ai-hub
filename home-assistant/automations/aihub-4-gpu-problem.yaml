@@ -1,15 +1,15 @@
 # 4. GPU / NVIDIA driver not responding (driver/library mismatch, GPU fell off the bus)
-alias: Groot - GPU problem
+alias: AIHub - GPU problem
 triggers:
   - trigger: state
-    entity_id: binary_sensor.groot_gpu
+    entity_id: binary_sensor.aihub_gpu
     to: "off"
     for: "00:03:00"
 actions:
   - action: notify.mobile_app_your_phone
     data:
-      title: "Groot GPU problem"
-      message: "nvidia-smi is failing on groot. Local models are down. Check with: nvidia-smi"
+      title: "AIHub GPU problem"
+      message: "nvidia-smi is failing on the server. Local models are down. Check with: nvidia-smi"
       data:
-        tag: groot-gpu
+        tag: aihub-gpu
         priority: high

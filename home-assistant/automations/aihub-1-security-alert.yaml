@@ -1,9 +1,9 @@
 # 1. Security alert: fires when a new alert appears or the alert list changes
-alias: Groot - security alert
+alias: AIHub - security alert
 mode: queued
 triggers:
   - trigger: state
-    entity_id: sensor.groot_security_alerts
+    entity_id: sensor.aihub_security_alerts
 conditions:
   - condition: template
     value_template: >-
@@ -14,11 +14,11 @@ conditions:
 actions:
   - action: notify.mobile_app_your_phone
     data:
-      title: "🚨 Groot security"
+      title: "🚨 AIHub security"
       message: "{{ trigger.to_state.attributes.get('items', []) | join('\n') }}"
       data:
         ttl: 0
         priority: high
         push:
           interruption-level: time-sensitive
-        tag: groot-security
+        tag: aihub-security

@@ -42,6 +42,19 @@ That's about 8 GB in use now, with room for Frigate. Its Turing architecture has
 | Crucial BX500 (SATA) | 2 TB | `/srv/models/comfyui` | ComfyUI checkpoints, LoRAs, outputs |
 | Crucial BX500 (SATA) | 1 TB | `/srv/backup` | Local backups |
 
+### Why this layout
+
+Each drive has one job, so the right speed goes where it matters and the OS install never touches the data.
+
+- **OS NVMe (970 EVO):** the only drive the Ubuntu installer touches (default LVM layout). It holds the OS, Docker, the compose stack in `/srv/ai` and app data in `/srv/data` (Open WebUI, n8n, the Postgres databases). `ollama-ha`'s model store (`/srv/models/ollama-ha`, one 8B model) also lives here; it has no mount of its own.
+- **Second NVMe (SN750) for Ollama:** LLMs get the fastest drive because they're the models that get switched between. Loading `local-deep` (gpt-oss 120B) evicts the 27B, and the 27B reloads afterwards, so load time is felt in every swap.
+- **2 TB SATA for ComfyUI:** image and video models are large but load once per render. At SATA speed that costs a few seconds against a multi-minute job, so the cheaper, bigger drive goes here, along with render outputs.
+- **1 TB SATA for backups:** the seven local nightly backups. The NAS holds the off-box copy ([Network storage](#network-storage-synology-nas)).
+
+The three data drives are formatted with labels and mounted by label (`LABEL=ollama|comfyui|backup`), so device-name changes between boots don't matter ([docs/02](02-ubuntu-nvidia.md#2-disk-layout)). Models aren't backed up; they can be downloaded again.
+
+The sizes are simply the drives that were on hand; the jobs were assigned to fit them.
+
 ## Network storage: Synology NAS
 
 | Part | Spec |
@@ -51,12 +64,12 @@ That's about 8 GB in use now, with room for Frigate. Its Turing architecture has
 | Other bays | 14 TB HDDs |
 | Expansion | External expansion unit, every bay filled with 10 TB HDDs |
 | Drive make | All Seagate NAS-grade; series _TODO: confirm_ |
-| Role for groot | Off-box copy of the nightly backups (a shared folder over SMB 3) |
+| Role for the server | Off-box copy of the nightly backups (a shared folder over SMB 3) |
 
-groot keeps seven nightly backups on its own 1 TB drive, then mirrors them to a shared folder on the NAS over SMB 3. The share is mounted at `/mnt/nas` by a systemd automount, and groot logs in with a dedicated NAS account used only for backups. If the NAS is down, the local backup still runs and groot-mon raises a "Backups" alert once the NAS copy is more than 27 h old. Setup, fstab line and password rotation: [10-backups.md](10-backups.md).
+The server keeps seven nightly backups on its own 1 TB drive, then mirrors them to a shared folder on the NAS over SMB 3. The share is mounted at `/mnt/nas` by a systemd automount, and the server logs in with a dedicated NAS account used only for backups. If the NAS is down, the local backup still runs and aihub-mon raises a "Backups" alert once the NAS copy is more than 27 h old. Setup, fstab line and password rotation: [10-backups.md](10-backups.md).
 
 Models are not copied to the NAS; they can be downloaded again.
 
 ## What stays off this box
 
-Home Assistant itself and the NAS run on other hardware. groot gets rebooted and tinkered with, and the house shouldn't notice.
+Home Assistant itself and the NAS run on other hardware. The AI server gets rebooted and tinkered with, and the house shouldn't notice.

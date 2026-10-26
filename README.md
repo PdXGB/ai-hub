@@ -1,8 +1,10 @@
-# groot-ai-hub
+# ai-hub
 
 A bare-metal, private AI hub for a household: local LLMs, image/video generation, voice for Home Assistant, and metered access to cloud models (Claude, Gemini, Grok) behind one gateway.
 
-Built and documented for a YouTube series. Everything here comes from the real, running machine ("groot"), scrubbed of secrets and LAN details by [`scripts/scrub.sh`](scripts/scrub.sh).
+Built and documented for a YouTube series. Everything here comes from the real, running machine, scrubbed of secrets and LAN details by [`scripts/scrub.sh`](scripts/scrub.sh).
+
+> **About the names:** my server's hostname is `groot`, and my assistant is called Groot. Neither appears in the files: the tools use an `aihub` prefix (`aihub-mon`, `aihub-backup`, `/etc/aihub`), the docs say "the server" or `<hostname>`, and the prompt templates leave the assistant's name for you to fill in. Pick your own.
 
 > 📺 **Video:** _link coming soon_
 
@@ -20,7 +22,7 @@ Built and documented for a YouTube series. Everything here comes from the real, 
 | SearXNG | Private web search for the LLMs | — |
 | cloudflared | Cloudflare Tunnel (plus Access) for remote use | — |
 | ComfyUI (native, systemd) | Image and video generation | Main |
-| groot-mon (systemd) | Health, update and security reporting to Home Assistant over MQTT | — |
+| aihub-mon (systemd) | Health, update and security reporting to Home Assistant over MQTT | — |
 
 Home Assistant voice reaches its model through LiteLLM's `local-ha` route, so it shares the gateway's keys, budgets and logs; see [docs/05](docs/05-home-assistant.md).
 
@@ -62,8 +64,8 @@ flowchart LR
   HA -- Wyoming --> WH[faster-whisper<br/>RTX 2060]
   HA -- Wyoming --> PI[Piper<br/>CPU]
   CUI[ComfyUI<br/>RTX 3090]
-  MON[groot-mon] -- MQTT --> HA
-  BAK[groot-backup] -- SMB 3 --> NAS[(Synology DS1618+)]
+  MON[aihub-mon] -- MQTT --> HA
+  BAK[aihub-backup] -- SMB 3 --> NAS[(Synology DS1618+)]
 ```
 
 The two GPUs never share a model. Each service is pinned to one card by UUID; see [docs/04-multi-gpu.md](docs/04-multi-gpu.md).
@@ -73,12 +75,12 @@ The two GPUs never share a model. Each service is pinned to one card by UUID; se
 ```
 compose/          compose.yaml, .env.example, litellm/config.example.yaml, searxng/settings.example.yml
 systemd/          GPU power limit, ComfyUI (+ gpu.conf drop-in), idle VRAM release, backup and
-                  groot-mon timers, persistenced override, gpu.env.example
-host/             docker daemon.json, unattended-upgrades NVIDIA blacklist, groot-mon.env.example
-host/bin/         groot-backup, groot-mon, comfyui-idle-free  (install to /usr/local/bin)
-home-assistant/   dashboard card, automations/ (groot-mon alerts), voice prompt template
-open-webui/       ask_model tool, Groot system prompt template
-scripts/          setup.sh, scrub.sh, update-image.sh, monthly-update.sh, groot-gpu-audit.sh, gpu-burn.py
+                  aihub-mon timers, persistenced override, gpu.env.example
+host/             docker daemon.json, unattended-upgrades NVIDIA blacklist, aihub-mon.env.example
+host/bin/         aihub-backup, aihub-mon, comfyui-idle-free  (install to /usr/local/bin)
+home-assistant/   dashboard card, automations/ (aihub-mon alerts), voice prompt template
+open-webui/       ask_model tool, assistant system prompt template
+scripts/          setup.sh, scrub.sh, update-image.sh, monthly-update.sh, aihub-gpu-audit.sh, gpu-burn.py
 docs/             step-by-step build notes
 ```
 
@@ -88,11 +90,11 @@ docs/             step-by-step build notes
 2. Clone this repo on the server and run the setup script:
 
    ```bash
-   git clone https://github.com/PdXGB/groot-ai-hub.git && cd groot-ai-hub
+   git clone https://github.com/PdXGB/ai-hub.git && cd ai-hub
    sudo bash scripts/setup.sh
    ```
 
-   It detects the GPUs and LAN IP, then asks for the hostnames, time zone, Cloudflare tunnel token, API keys, budgets, GPU power limit and the MQTT broker for groot-mon (blank skips an item). It generates the secrets and writes `/srv/ai` (compose, `.env`, LiteLLM and SearXNG configs, update scripts), `/etc/groot-ai/gpu.env` and the host files, then installs the systemd units and enables the timers. Re-runs never overwrite: they fill in missing values and list files that differ from the repo. `--help` shows the options.
+   It detects the GPUs and LAN IP, then asks for the hostnames, time zone, Cloudflare tunnel token, API keys, budgets, GPU power limit and the MQTT broker for aihub-mon (blank skips an item). It generates the secrets and writes `/srv/ai` (compose, `.env`, LiteLLM and SearXNG configs, update scripts), `/etc/aihub/gpu.env` and the host files, then installs the systemd units and enables the timers. Re-runs never overwrite: they fill in missing values and list files that differ from the repo. `--help` shows the options.
 3. Start the stack and pull the models (setup.sh prints these steps at the end):
 
    ```bash
@@ -115,10 +117,10 @@ Secrets live only in `/srv/ai/.env` (mode 600), outside the clone. `compose/.env
 3. [Docker stack](docs/03-docker-stack.md)
 4. [Two GPUs, pinned by UUID](docs/04-multi-gpu.md)
 5. [Home Assistant voice + LLM](docs/05-home-assistant.md)
-6. [Model routing: Groot and `ask_model`](docs/06-model-routing.md)
+6. [Model routing: the assistant and `ask_model`](docs/06-model-routing.md)
 7. [Knowledge base (RAG)](docs/07-knowledge-base.md)
 8. [ComfyUI: image and video](docs/08-comfyui.md)
-9. [Monitoring: groot-mon](docs/09-monitoring.md)
+9. [Monitoring: aihub-mon](docs/09-monitoring.md)
 10. [Backups](docs/10-backups.md)
 11. [Updates](docs/11-updates.md)
 

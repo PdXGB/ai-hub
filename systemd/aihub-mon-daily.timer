@@ -1,5 +1,5 @@
 [Unit]
-Description=Run groot-mon daily update check
+Description=Run aihub-mon daily update check
 [Timer]
 OnCalendar=*-*-* 04:23
 Persistent=true

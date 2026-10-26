@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# monthly-update.sh — the whole monthly routine for groot, with a prompt at each step.
+# monthly-update.sh — the whole monthly routine for the server, with a prompt at each step.
 #   1. containers (one at a time, health check between each)
 #   2. Ollama models (optional)
 #   3. Ubuntu incl. kernel + NVIDIA (the packages unattended-upgrades skips)
@@ -37,5 +37,5 @@ if [[ -f /var/run/reboot-required ]]; then
   echo "A reboot is required:"; cat /var/run/reboot-required.pkgs 2>/dev/null | sed 's/^/  /'
 fi
 echo "After reboot, check with:"
-echo "  nvidia-smi && docker compose -f /srv/ai/compose.yaml ps && sudo /usr/local/bin/groot-mon --dry-run"
+echo "  nvidia-smi && docker compose -f /srv/ai/compose.yaml ps && sudo /usr/local/bin/aihub-mon --dry-run"
 if [[ $(ask "Reboot now? [y/N]") == y ]]; then sudo reboot; fi

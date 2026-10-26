@@ -9,7 +9,7 @@ credentials*.json
 cloudflared/*.json
 
 # --- Scrub workflow ---
-# scrub.sh copies live configs from groot here; only reviewed, scrubbed
+# scrub.sh copies live configs from the server here; only reviewed, scrubbed
 # files get moved into the repo proper.
 staging/
 *.scrub-report.txt
@@ -47,6 +47,6 @@ __pycache__/
 .venv/
 venv/
 
-# scrub.sh local replacements (lives on groot, never commit)
+# scrub.sh local replacements (lives on the server, never commit)
 .scrub-literals
 SCRUB-REPORT.txt

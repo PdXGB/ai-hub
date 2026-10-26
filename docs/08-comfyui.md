@@ -12,7 +12,7 @@ Ubuntu 26.04's system Python can be newer than PyTorch supports, so the venv get
 curl -LsSf https://astral.sh/uv/install.sh | sh
 sudo git clone https://github.com/Comfy-Org/ComfyUI.git /srv/comfyui
 sudo chown -R $USER: /srv/comfyui && cd /srv/comfyui
-uv venv --python 3.13 .venv && source .venv/bin/activate     # groot: Python 3.13, torch 2.14.1+cu130
+uv venv --python 3.13 .venv && source .venv/bin/activate     # this build: Python 3.13, torch 2.14.1+cu130
 # PyTorch: paste the pip line from pytorch.org's selector (Linux, Pip, newest CUDA 13.x)
 uv pip install -r requirements.txt
 
@@ -44,13 +44,13 @@ sudo systemctl enable --now comfyui
 journalctl -u comfyui -f
 ```
 
-Open `http://groot:8188`. ComfyUI has **no authentication**: ufw limits 8188 to the LAN and the Docker bridge, and it is never routed through the tunnel ([docs/03](03-docker-stack.md#2-services-and-exposure)).
+Open `http://<hostname>:8188`. ComfyUI has **no authentication**: ufw limits 8188 to the LAN and the Docker bridge, and it is never routed through the tunnel ([docs/03](03-docker-stack.md#2-services-and-exposure)).
 
 ## 3. Video: Wan 2.2 image-to-video, turbo
 
 Start from ComfyUI's built-in **Wan 2.2 14B image-to-video** template; it links the model files to download into `/srv/models/comfyui`.
 
-Measured on groot: 640×640, 5 s clip, `fp8_scaled` checkpoints, 3090 at 325 W:
+Measured on this build: 640×640, 5 s clip, `fp8_scaled` checkpoints, 3090 at 325 W:
 
 | Setting | Time per clip |
 |---|---|

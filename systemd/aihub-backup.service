@@ -1,0 +1,6 @@
+[Unit]
+Description=aihub nightly backup
+After=docker.service
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/aihub-backup

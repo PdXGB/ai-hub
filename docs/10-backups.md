@@ -1,18 +1,18 @@
 # 10 — Backups
 
-Nightly, two copies: one on groot's own backup drive, one on a NAS. Models are left out; they can be downloaded again.
+Nightly, two copies: one on the server's own backup drive, one on a NAS. Models are left out; they can be downloaded again.
 
-Files: [`host/bin/groot-backup`](../host/bin/groot-backup), [`systemd/groot-backup.service`](../systemd/groot-backup.service), [`systemd/groot-backup.timer`](../systemd/groot-backup.timer). `setup.sh` installs all three and enables the timer.
+Files: [`host/bin/aihub-backup`](../host/bin/aihub-backup), [`systemd/aihub-backup.service`](../systemd/aihub-backup.service), [`systemd/aihub-backup.timer`](../systemd/aihub-backup.timer). `setup.sh` installs all three and enables the timer.
 
 ## 1. What's backed up
 
-Each night `groot-backup` writes a dated folder, `/srv/backup/YYYY-MM-DD/`:
+Each night `aihub-backup` writes a dated folder, `/srv/backup/YYYY-MM-DD/`:
 
 | File | Contents |
 |---|---|
 | `litellm-db.sql.gz` | `pg_dump` of LiteLLM's database (keys, spend logs), taken through `docker compose exec`, so it's consistent while running |
 | `n8n-db.sql.gz` | `pg_dump` of n8n's database (workflows, encrypted credentials) |
-| `groot-config.tar.gz` | Configs, secrets and app data (list below) |
+| `aihub-config.tar.gz` | Configs, secrets and app data (list below) |
 
 The tar archive holds:
 
@@ -20,8 +20,8 @@ The tar archive holds:
 - `/srv/data/open-webui`, `/srv/data/n8n`: app data (Open WebUI's chats, users, knowledge; n8n's files)
 - `/srv/comfyui/user`, `/srv/comfyui/custom_nodes`: ComfyUI workflows and settings, custom nodes
 - `/etc/docker/daemon.json`, `/etc/netplan`, `/etc/fstab`, `/etc/apt/apt.conf.d/51unattended-nvidia`
-- `/etc/groot-ai` (`gpu.env`), the systemd units and drop-ins (ComfyUI, power limit, idle-free, persistenced, `groot-*`)
-- `/usr/local/bin/comfyui-idle-free`, `groot-backup`, `groot-mon`; `/etc/groot-mon.env`, `/var/lib/groot-mon`, and groot-mon's MQTT login (`/root/.config/mosquitto_pub`)
+- `/etc/aihub` (`gpu.env`), the systemd units and drop-ins (ComfyUI, power limit, idle-free, persistenced, `aihub-*`)
+- `/usr/local/bin/comfyui-idle-free`, `aihub-backup`, `aihub-mon`; `/etc/aihub-mon.env`, `/var/lib/aihub-mon`, and aihub-mon's MQTT login (`/root/.config/mosquitto_pub`)
 
 Skipped: the raw Postgres data folders (the dumps replace them) and everything under `/srv/models`.
 
@@ -29,17 +29,17 @@ Skipped: the raw Postgres data folders (the dumps replace them) and everything u
 
 ## 2. Schedule and retention
 
-[`groot-backup.timer`](../systemd/groot-backup.timer): daily at 02:30, `Persistent=true` (a run missed while groot was off happens at next boot).
+[`aihub-backup.timer`](../systemd/aihub-backup.timer): daily at 02:30, `Persistent=true` (a run missed while the server was off happens at next boot).
 
 - **Local:** keeps 7 days; older dated folders are deleted.
-- **NAS:** `rsync -rt --delete` mirrors `/srv/backup/` to `/mnt/nas/groot/`, so the NAS also holds the last 7 days. If the share isn't reachable, the run still succeeds locally and logs a warning.
+- **NAS:** `rsync -rt --delete` mirrors `/srv/backup/` to `/mnt/nas/aihub/`, so the NAS also holds the last 7 days. If the share isn't reachable, the run still succeeds locally and logs a warning.
 
 ```bash
-sudo systemctl start groot-backup && journalctl -u groot-backup -n 5    # "Backup OK: /srv/backup/… (size)" and "Copied to NAS"
-systemctl list-timers groot-backup.timer
+sudo systemctl start aihub-backup && journalctl -u aihub-backup -n 5    # "Backup OK: /srv/backup/… (size)" and "Copied to NAS"
+systemctl list-timers aihub-backup.timer
 ```
 
-groot-mon watches both copies: the `Backups` sensor goes off if the newest local folder is older than 26 h or the NAS copy older than 27 h, and alert 6 fires ([docs/09](09-monitoring.md)). Paths and limits are in `/etc/groot-mon.env` (`BACKUP_DIR`, `NAS_BACKUP_DIR`, `BACKUP_MAX_AGE_H`, `NAS_MAX_AGE_H`).
+aihub-mon watches both copies: the `Backups` sensor goes off if the newest local folder is older than 26 h or the NAS copy older than 27 h, and alert 6 fires ([docs/09](09-monitoring.md)). Paths and limits are in `/etc/aihub-mon.env` (`BACKUP_DIR`, `NAS_BACKUP_DIR`, `BACKUP_MAX_AGE_H`, `NAS_MAX_AGE_H`).
 
 ## 3. The NAS mount
 
@@ -56,31 +56,31 @@ The share is a shared folder on a Synology NAS ([docs/01](01-hardware.md#network
 | `_netdev,nofail` | Wait for the network, and don't block boot if the NAS is down |
 | `x-systemd.automount` | systemd mounts it on first access |
 
-groot logs in with a dedicated NAS account used only for backups.
+The server logs in with a dedicated NAS account used only for backups.
 
 ```bash
 sudo mkdir -p /mnt/nas
 sudo systemctl daemon-reload && sudo systemctl restart mnt-nas.automount
-ls /mnt/nas && sudo mkdir -p /mnt/nas/groot
+ls /mnt/nas && sudo mkdir -p /mnt/nas/aihub
 ```
 
 **Rotating the NAS password:** change it in DSM, rewrite the credentials file, then restart the mount through systemd. A plain `mount` fails with "busy" because the automount holds the path:
 
 ```bash
 sudo systemctl stop mnt-nas.mount && sudo systemctl restart mnt-nas.automount
-ls /mnt/nas/groot                                       # triggers the mount
+ls /mnt/nas/aihub                                       # triggers the mount
 ```
 
 (The unit names come from the mount path: `/mnt/nas` → `mnt-nas.*`.)
 
 ## 4. Restore
 
-Tested on groot: the n8n database dump restored into a scratch container, and a single file pulled out of the config archive. Neither touches anything live. Restoring over the running stack hasn't been tested.
+Tested on this build: the n8n database dump restored into a scratch container, and a single file pulled out of the config archive. Neither touches anything live. Restoring over the running stack hasn't been tested.
 
 Each night's folder holds root-only files, so run these as root (or with `sudo`). Pick a backup:
 
 ```bash
-B=$(ls -1d /srv/backup/20* | tail -1); sudo ls -la "$B"      # newest; or /mnt/nas/groot/<date>
+B=$(ls -1d /srv/backup/20* | tail -1); sudo ls -la "$B"      # newest; or /mnt/nas/aihub/<date>
 ```
 
 ### Database dump into a scratch Postgres
@@ -104,22 +104,22 @@ docker rm -f restore-test
 - Wait for `init process complete` (the image creates the database on first start) and `pg_isready` before restoring.
 - `ON_ERROR_STOP=1` makes a bad dump fail loudly instead of half-loading.
 - `litellm-db.sql.gz` should restore the same way with `litellm` as user and database; only the n8n dump has been tested.
-- While the container runs, groot-mon raises a **rogue container** alert ([docs/09](09-monitoring.md#2-security-tripwires)); it clears when the container is removed.
+- While the container runs, aihub-mon raises a **rogue container** alert ([docs/09](09-monitoring.md#2-security-tripwires)); it clears when the container is removed.
 
-### One file from `groot-config.tar.gz`
+### One file from `aihub-config.tar.gz`
 
 Paths are stored without the leading `/`. Extract into a scratch folder, never over `/`:
 
 ```bash
 mkdir -p ~/restore-test
-sudo tar -tzf "$B/groot-config.tar.gz" | grep compose            # find the member name
-sudo tar -xzf "$B/groot-config.tar.gz" -C ~/restore-test srv/ai/compose.yaml
+sudo tar -tzf "$B/aihub-config.tar.gz" | grep compose            # find the member name
+sudo tar -xzf "$B/aihub-config.tar.gz" -C ~/restore-test srv/ai/compose.yaml
 sudo diff ~/restore-test/srv/ai/compose.yaml /srv/ai/compose.yaml
 sudo rm -rf ~/restore-test                                        # the archive holds .env and other secrets
 ```
 
-A difference just means the file changed after that night's backup. On groot the archive is about 850 MB and 330 entries.
+A difference just means the file changed after that night's backup. On this build the archive is about 850 MB and 330 entries.
 
 ## 5. Separate: pre-update backups
 
-`update-image.sh` makes its own backup before each container update (compose file, plus the service's database or data) under `/srv/backup/pre-update/<timestamp>-<service>/`, owner-only (mode 700). It keeps the newest 3 per service (`KEEP_BACKUPS`). The folder doesn't start with `20`, so the nightly retention and groot-mon's age check ignore it; the NAS mirror includes it. See [docs/11](11-updates.md).
+`update-image.sh` makes its own backup before each container update (compose file, plus the service's database or data) under `/srv/backup/pre-update/<timestamp>-<service>/`, owner-only (mode 700). It keeps the newest 3 per service (`KEEP_BACKUPS`). The folder doesn't start with `20`, so the nightly retention and aihub-mon's age check ignore it; the NAS mirror includes it. See [docs/11](11-updates.md).

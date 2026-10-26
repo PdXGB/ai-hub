@@ -33,20 +33,20 @@ cp compose/.env.example /srv/ai/.env && chmod 600 /srv/ai/.env          # fill i
 
 | Service | Image | Port binding | Reachable from | GPU |
 |---|---|---|---|---|
-| `ollama` | `ollama/ollama:0.40.11` | `127.0.0.1:11434` | groot only | Main |
-| `ollama-ha` | `ollama/ollama:0.40.11` | `127.0.0.1:11435` | groot only | HA |
-| `litellm` | `ghcr.io/berriai/litellm:main-stable@sha256:…` | `127.0.0.1:4000`, `${GROOT_LAN_IP}:4000` | LAN (key required) | — |
+| `ollama` | `ollama/ollama:0.40.11` | `127.0.0.1:11434` | server only | Main |
+| `ollama-ha` | `ollama/ollama:0.40.11` | `127.0.0.1:11435` | server only | HA |
+| `litellm` | `ghcr.io/berriai/litellm:main-stable@sha256:…` | `127.0.0.1:4000`, `${AIHUB_LAN_IP}:4000` | LAN (key required) | — |
 | `litellm-db` | `postgres:17` | none | compose network | — |
 | `open-webui` | `ghcr.io/open-webui/open-webui:main@sha256:…` | `3000:8080` (all interfaces) | LAN, and Cloudflare | — |
 | `n8n` | `n8nio/n8n:stable@sha256:…` | `5678:5678` (all interfaces) | LAN, and Cloudflare | — |
 | `n8n-db` | `postgres:17` | none | compose network | — |
 | `cloudflared` | `cloudflare/cloudflared:latest@sha256:…` | none (outbound only) | — | — |
-| `whisper` | `lscr.io/linuxserver/faster-whisper:gpu@sha256:…` | `${GROOT_LAN_IP}:10300` | LAN (Home Assistant) | HA |
-| `piper` | `lscr.io/linuxserver/piper:latest@sha256:…` | `${GROOT_LAN_IP}:10200` | LAN (Home Assistant) | — |
-| `searxng` | `searxng/searxng:latest@sha256:…` | `127.0.0.1:8888` | groot only | — |
+| `whisper` | `lscr.io/linuxserver/faster-whisper:gpu@sha256:…` | `${AIHUB_LAN_IP}:10300` | LAN (Home Assistant) | HA |
+| `piper` | `lscr.io/linuxserver/piper:latest@sha256:…` | `${AIHUB_LAN_IP}:10200` | LAN (Home Assistant) | — |
+| `searxng` | `searxng/searxng:latest@sha256:…` | `127.0.0.1:8888` | server only | — |
 | ComfyUI (native, `comfyui.service`) | — | `0.0.0.0:8188` | LAN via ufw | Main |
 
-Containers reach each other by service name on the compose network (`http://litellm:4000`, `http://ollama:11434`, `http://searxng:8080`). The localhost bindings are for testing from groot itself.
+Containers reach each other by service name on the compose network (`http://litellm:4000`, `http://ollama:11434`, `http://searxng:8080`). The localhost bindings are for testing from the server itself.
 
 **Firewall.** ufw denies inbound by default and allows:
 
@@ -177,7 +177,7 @@ After the first login (that account is the admin):
 - Leave **Temperature** at Default on cloud models.
 - Hide `embed` from the chat model list.
 
-`extra_hosts: host.docker.internal:host-gateway` lets it reach ComfyUI on the host for image generation (docs/08). Model routing, the Groot model and the `ask_model` tool: [06-model-routing.md](06-model-routing.md). Knowledge base: [07-knowledge-base.md](07-knowledge-base.md).
+`extra_hosts: host.docker.internal:host-gateway` lets it reach ComfyUI on the host for image generation (docs/08). Model routing, the assistant model and the `ask_model` tool: [06-model-routing.md](06-model-routing.md). Knowledge base: [07-knowledge-base.md](07-knowledge-base.md).
 
 ## 7. n8n
 

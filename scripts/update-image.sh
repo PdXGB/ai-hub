@@ -17,9 +17,9 @@ set -euo pipefail
 STACK=/srv/ai
 COMPOSE="$STACK/compose.yaml"
 LOG="$STACK/update-log.txt"
-BACKUP_ROOT=/srv/backup/pre-update     # backup drive; groot-backup mirrors it to the NAS
+BACKUP_ROOT=/srv/backup/pre-update     # backup drive; aihub-backup mirrors it to the NAS
 KEEP_BACKUPS=${KEEP_BACKUPS:-3}         # pre-update backups kept per service
-# --all order: lowest risk first, Groot's core last. Services not listed run after these.
+# --all order: lowest risk first, the chat stack last. Services not listed run after these.
 ORDER=(searxng piper whisper cloudflared litellm-db n8n-db ollama ollama-ha litellm n8n open-webui)
 cd "$STACK"
 

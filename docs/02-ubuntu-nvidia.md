@@ -2,7 +2,7 @@
 
 Bare metal to a host that can hand a GPU to a container. Everything except the NVIDIA driver runs in Docker, so the host stays small and a rebuild is repeatable.
 
-| Component | Version on groot |
+| Component | Version on this build |
 |---|---|
 | OS | Ubuntu Server 26.04.1 LTS, kernel 7.0 |
 | NVIDIA driver | 595.91.07, open kernel modules, from Ubuntu's repo (`nvidia-utils-595-server`) |
@@ -32,11 +32,11 @@ MSI Z490-A PRO (see [01-hardware.md](01-hardware.md)):
 
 **Memory.** Four 32 GB DDR4-3600 sticks are past what the 10700KF's memory controller is rated for (2933), so aim for stability:
 
-1. XMP (3600) with Memory Fast Boot off. groot runs here.
+1. XMP (3600) with Memory Fast Boot off. This build runs here.
 2. If it fails to train or memtest throws errors: 3200 with the XMP timings and voltage.
 3. Still unstable: 2933.
 
-Run [memtest86+](https://www.memtest.org/) for at least one full pass, overnight if possible. The 3600 vs 3200 difference (~11% bandwidth) only matters for models that spill into system RAM, like `local-deep`. _On groot this pass is still to do._
+Run [memtest86+](https://www.memtest.org/) for at least one full pass, overnight if possible. The 3600 vs 3200 difference (~11% bandwidth) only matters for models that spill into system RAM, like `local-deep`. _On this build the pass is still to do._
 
 ## 2. Disk layout
 
@@ -62,7 +62,7 @@ After the first boot:
 
 ```bash
 sudo apt update && sudo apt full-upgrade -y
-sudo hostnamectl set-hostname groot
+sudo hostnamectl set-hostname <hostname>
 sudo timedatectl set-timezone <your timezone>          # e.g. Europe/London
 sudo apt install -y build-essential linux-headers-$(uname -r) git curl htop nvtop
 ```
@@ -89,7 +89,7 @@ df -h | grep /srv
 
 ## 4. Static IP
 
-groot uses the onboard Realtek RTL8125 2.5GbE (`enp111s0` on this board; check yours with `ip -br link`). If the installer set the address, it's in `/etc/netplan/00-installer-config.yaml`. Otherwise:
+This build uses the onboard Realtek RTL8125 2.5GbE (`enp111s0` on this board; check yours with `ip -br link`). If the installer set the address, it's in `/etc/netplan/00-installer-config.yaml`. Otherwise:
 
 ```yaml
 network:
@@ -97,7 +97,7 @@ network:
   ethernets:
     enp111s0:                       # from ip -br link
       dhcp4: false
-      addresses: [<groot LAN IP>/<prefix>]
+      addresses: [<server LAN IP>/<prefix>]
       routes:
         - to: default
           via: <gateway IP>
@@ -123,7 +123,7 @@ sudo reboot
 - `--gpgpu` installs the compute/headless driver, with no desktop stack.
 - `-open` is NVIDIA's open kernel module, the recommended choice for Turing and newer (both the 3090 and the 2060).
 - The modules come prebuilt and signed (`linux-modules-nvidia-595-server-open-*`) and are updated together with each kernel, so a kernel update doesn't need a DKMS rebuild.
-- A 615 server-open branch was also offered; groot stays on 595, the more established branch.
+- A 615 server-open branch was also offered; this build stays on 595, the more established branch.
 
 **`--gpgpu` leaves out the CLI tools**, including `nvidia-smi`. Install the utils package whose version matches the loaded driver:
 
@@ -256,10 +256,10 @@ nvidia-smi                                              # after the reboot
 
 ## 8. Record the result
 
-[`scripts/groot-gpu-audit.sh`](../scripts/groot-gpu-audit.sh) prints the board and BIOS, driver and package versions, every GPU (UUID, power limit, PCIe link), GPU processes, storage, the power-limit and NVIDIA services, Docker runtimes, and the GPU sections of the compose file. It's read-only.
+[`scripts/aihub-gpu-audit.sh`](../scripts/aihub-gpu-audit.sh) prints the board and BIOS, driver and package versions, every GPU (UUID, power limit, PCIe link), GPU processes, storage, the power-limit and NVIDIA services, Docker runtimes, and the GPU sections of the compose file. It's read-only.
 
 ```bash
-sudo bash scripts/groot-gpu-audit.sh > ~/gpu-audit-$(date +%F).txt
+sudo bash scripts/aihub-gpu-audit.sh > ~/gpu-audit-$(date +%F).txt
 ```
 
 Keep the output; it's the "before" to compare against after any hardware or driver change.

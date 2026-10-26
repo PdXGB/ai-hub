@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
-# scrub.sh - copy groot's live configs into a staging folder and replace
+# scrub.sh - copy the server's live configs into a staging folder and replace
 # secrets and site-specific values with placeholders, so they can be
 # reviewed and committed to a public repo.
 #
-# Run ON THE SERVER:   sudo bash scrub.sh [output-dir]   (default ~/groot-staging)
+# Run ON THE SERVER:   sudo bash scrub.sh [output-dir]   (default ~/aihub-staging)
 # Then review OUT/scrub-report.txt and the files before committing anything.
 #
-# Nothing personal is hardcoded here: secrets, IPs, domain, NAS, GPU UUIDs and
-# usernames are discovered from the live system at run time. Anything it can't
+# Nothing personal is hardcoded here: secrets, IPs, domain, NAS, GPU UUIDs,
+# hostname and usernames are discovered from the live system at run time. Anything it can't
 # discover goes in ~/.scrub-literals (never commit it), one per line:
 #   find=>replace          e.g.   My Real Name=>youruser
 #
 # Safety: the output dir must be new, empty, or a previous scrub output
-# (marked by .groot-scrub-output). Anything else is refused, never deleted.
+# (marked by .aihub-scrub-output). Anything else is refused, never deleted.
 set -euo pipefail
 
 [ "$(id -u)" -eq 0 ] || { echo "Run with sudo (needs to read root-only configs)."; exit 1; }
 USER_NAME="${SUDO_USER:-$(logname 2>/dev/null || echo root)}"
 USER_HOME="$(getent passwd "$USER_NAME" | cut -d: -f6)"
-OUT="$(realpath -m "${1:-$USER_HOME/groot-staging}")"
+OUT="$(realpath -m "${1:-$USER_HOME/aihub-staging}")"
 AI=/srv/ai
-MARK=.groot-scrub-output
+MARK=.aihub-scrub-output
 
 # ---------- guard the output dir ----------
 case "$OUT" in
@@ -46,11 +46,11 @@ cp_if "$AI/searxng/settings.yml"      "$OUT/compose/searxng/settings.example.yml
 
 for u in nvidia-power-limit.service comfyui.service \
          comfyui-idle-free.service comfyui-idle-free.timer \
-         groot-backup.service groot-backup.timer \
-         groot-brief.service groot-brief.timer \
-         groot-mon.service groot-mon.timer \
-         groot-mon-daily.service groot-mon-daily.timer \
-         groot-mon-listen.service; do
+         aihub-backup.service aihub-backup.timer \
+         aihub-brief.service aihub-brief.timer \
+         aihub-mon.service aihub-mon.timer \
+         aihub-mon-daily.service aihub-mon-daily.timer \
+         aihub-mon-listen.service; do
   [ -e "/etc/systemd/system/$u" ] && cp_if "/etc/systemd/system/$u" "$OUT/systemd/$u"
 done
 for d in comfyui.service.d nvidia-persistenced.service.d; do
@@ -58,13 +58,13 @@ for d in comfyui.service.d nvidia-persistenced.service.d; do
     mkdir -p "$OUT/systemd/$d"; cp -a /etc/systemd/system/$d/*.conf "$OUT/systemd/$d/" && echo "  + /etc/systemd/system/$d/"
   fi
 done
-for s in groot-backup groot-brief groot-mon comfyui-idle-free; do
+for s in aihub-backup aihub-brief aihub-mon comfyui-idle-free; do
   [ -e "/usr/local/bin/$s" ] && cp_if "/usr/local/bin/$s" "$OUT/host/bin/$s"
 done
 cp_if /etc/docker/daemon.json                 "$OUT/host/docker-daemon.json"
 cp_if /etc/apt/apt.conf.d/51unattended-nvidia "$OUT/host/51unattended-nvidia"
-cp_if /etc/groot-mon.env                      "$OUT/host/groot-mon.env.example"
-cp_if "$USER_HOME/groot-gpu-audit.sh"         "$OUT/scripts/groot-gpu-audit.sh"
+cp_if /etc/aihub-mon.env                      "$OUT/host/aihub-mon.env.example"
+cp_if "$USER_HOME/aihub-gpu-audit.sh"         "$OUT/scripts/aihub-gpu-audit.sh"
 cp_if "$AI/update-image.sh"                   "$OUT/scripts/update-image.sh"
 cp_if "$AI/monthly-update.sh"                 "$OUT/scripts/monthly-update.sh"
 # Never collected: /root/.config/mosquitto_pub (broker login), .env values,
@@ -116,7 +116,7 @@ for k, v in env.items():
     if len(v) >= 8: literal[v] = '${%s}' % k
 
 # 3. other secret-bearing config files (read only)
-for path, tag in [('/etc/groot-health.conf', 'HEALTH'), ('/etc/groot-brief.conf', 'BRIEF')]:
+for path, tag in [('/etc/aihub-brief.conf', 'BRIEF')]:
     for k, v in kv(path).items():
         if len(v) >= 8 and not v.startswith('http'):
             literal[v] = '<REDACTED:%s_%s>' % (tag, k.upper())
@@ -150,7 +150,7 @@ try:
                     if 'pass' in k.lower() and len(v) >= 4: literal[v] = '<REDACTED:SMB_PASSWORD>'
 except FileNotFoundError:
     pass
-nas_names = {n for n in nas_names if len(n) >= 3 and n.lower() not in ('mnt', 'nas', 'backup', 'groot')}
+nas_names = {n for n in nas_names if len(n) >= 3 and n.lower() not in ('mnt', 'nas', 'backup', 'aihub')}
 
 # 5. GPU UUIDs -> compose variables (biggest card = main, next = HA)
 try:
@@ -163,9 +163,9 @@ except Exception:
     pass
 
 # 6. known site IPs
-try: literal[subprocess.run(['hostname', '-I'], capture_output=True, text=True).stdout.split()[0]] = '${GROOT_LAN_IP}'
+try: literal[subprocess.run(['hostname', '-I'], capture_output=True, text=True).stdout.split()[0]] = '${AIHUB_LAN_IP}'
 except Exception: pass
-m = re.search(r'https?://([\d.]+)', kv('/etc/groot-brief.conf').get('HA_URL', ''))
+m = re.search(r'https?://([\d.]+)', kv('/etc/aihub-brief.conf').get('HA_URL', ''))
 if m: ha_host = ha_host or m.group(1)
 if ha_host: literal[ha_host] = '${HA_HOST}'
 
@@ -192,6 +192,12 @@ if domain:
 for n in nas_names:
     rules.append((r'(?i)\b' + re.escape(n) + r'\b', None))           # NAS / nas, keeps case style
     leak_words.append(('NAS name', r'(?i)\b' + re.escape(n) + r'\b'))
+# the server's hostname (public files say "the server" or <hostname>)
+import socket
+host = socket.gethostname().split('.')[0]
+if len(host) >= 3 and host.lower() not in ('localhost', 'ubuntu', 'server', 'aihub'):
+    rules.append((r'(?i)\b' + re.escape(host) + r'\b', '<hostname>'))
+    leak_words.append(('hostname', r'(?i)\b' + re.escape(host) + r'\b'))
 
 # Remaining private addresses -> numbered placeholders
 priv = collections.OrderedDict()
@@ -214,7 +220,6 @@ rules += [
     (r'\bgh[pousr]_[A-Za-z0-9]{20,}', '<REDACTED_TOKEN>'),
     (r'\beyJ[\w-]{10,}(\.[\w-]{10,}){0,2}', '<REDACTED_JWT>'),
     (r'(\b[a-z][a-z0-9+.-]*://[^/\s:@]+:)(?!\$\{)[^@\s/]+@', r'\1<REDACTED>@'),   # password in URL
-    (r'\bgroot-health-[0-9a-f]{8,}\b', '<WEBHOOK_ID>'),
     (r'(?<!sha256:)\b[0-9a-f]{32,}\b', '<REDACTED_HEX>'),                # keeps image digests
     (r'/home/' + re.escape(user) + r'\b', '/home/<user>'),
     (r'(?m)^(User|Group)=' + re.escape(user) + r'$', r'\1=<user>'),
@@ -247,7 +252,7 @@ leaks = [('private IP', r'\b(?:192\.168|10\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01]))\.
 # any hostname with a common public TLD that isn't on the allowlist
 ALLOW_HOSTS = r'(?:[\w-]+\.)*(?:example\.com|github\.com|githubusercontent\.com|docker\.com|docker\.io|ghcr\.io|lscr\.io|quay\.io|ollama\.com|nvidia\.com|ubuntu\.com|canonical\.com|anthropic\.com|googleapis\.com|google\.com|x\.ai|openai\.com|cloudflare\.com|cloudflareaccess\.com|searxng\.org|n8n\.io|home-assistant\.io|huggingface\.co|pytorch\.org|python\.org|pypi\.org|debian\.org|archive\.org|wikipedia\.org|duckduckgo\.com|bing\.com|brave\.com|startpage\.com|qwant\.com|mojeek\.com|litellm\.ai|berri\.ai|mosquitto\.org|eclipse\.org|fwupd\.org|lvfs\.org|microsoft\.com|docker\.internal)'
 leaks.append(('public hostname', r'(?<![\w.@-])(?!' + ALLOW_HOSTS + r'\b)(?:[A-Za-z0-9-]+\.)+(?:com|net|org|io|tech|dev|app|ai|me|co|us|xyz|cloud|online|site|info|biz|duckdns\.org|ddns\.net)\b(?![\w-])'))
-if len(user) >= 3 and user not in ('root', 'groot', 'ubuntu'):
+if len(user) >= 3 and user not in ('root', 'ubuntu'):
     leaks.append(('username', r'(?i)\b' + re.escape(user) + r'\b'))
 found, suspicious = [], []
 for f in files:

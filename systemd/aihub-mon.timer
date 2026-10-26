@@ -1,5 +1,5 @@
 [Unit]
-Description=Run groot-mon every minute
+Description=Run aihub-mon every minute
 [Timer]
 OnBootSec=60
 OnUnitActiveSec=60
