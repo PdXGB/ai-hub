@@ -2,7 +2,7 @@
 
 Nightly, two copies: one on the server's own backup drive, one on a NAS. Models are left out; they can be downloaded again.
 
-Files: [`host/bin/aihub-backup`](../host/bin/aihub-backup), [`systemd/aihub-backup.service`](../systemd/aihub-backup.service), [`systemd/aihub-backup.timer`](../systemd/aihub-backup.timer). `setup.sh` installs all three and enables the timer.
+Files: [`host/bin/aihub-backup`](../host/bin/aihub-backup), [`systemd/aihub-backup.service`](../systemd/aihub-backup.service), [`systemd/aihub-backup.timer`](../systemd/aihub-backup.timer). `setup.sh` installs all three and enables the timer. The monthly restore drill ([§4](#restore-drill-monthly)) has its own script and timer.
 
 ## 1. What's backed up
 
@@ -21,7 +21,7 @@ The tar archive holds:
 - `/srv/comfyui/user`, `/srv/comfyui/custom_nodes`: ComfyUI workflows and settings, custom nodes
 - `/etc/docker/daemon.json`, `/etc/netplan`, `/etc/fstab`, `/etc/apt/apt.conf.d/51unattended-nvidia`
 - `/etc/aihub` (`gpu.env`), the systemd units and drop-ins (ComfyUI, power limit, idle-free, persistenced, `aihub-*`)
-- `/usr/local/bin/comfyui-idle-free`, `aihub-backup`, `aihub-gpu-power`, `aihub-mon`; `/etc/aihub-mon.env`, `/var/lib/aihub-mon`, and aihub-mon's MQTT login (`/root/.config/mosquitto_pub`)
+- `/usr/local/bin/comfyui-idle-free`, `aihub-backup`, `aihub-gpu-power`, `aihub-mon`, `aihub-restore-drill`; `/etc/aihub-mon.env`, `/var/lib/aihub-mon`, and aihub-mon's MQTT login (`/root/.config/mosquitto_pub`)
 
 Skipped: the raw Postgres data folders (the dumps replace them) and everything under `/srv/models`.
 
@@ -75,7 +75,7 @@ ls /mnt/nas/aihub                                       # triggers the mount
 
 ## 4. Restore
 
-Tested on this build: the n8n database dump restored into a scratch container, and a single file pulled out of the config archive. Neither touches anything live. Restoring over the running stack hasn't been tested.
+Tested on this build: both database dumps (n8n and LiteLLM) restored into scratch containers, the config archive listed and a single file pulled out of it. None of it touches anything live, and the monthly drill below repeats the database and archive checks automatically. Restoring over the running stack hasn't been tested.
 
 Each night's folder holds root-only files, so run these as root (or with `sudo`). Pick a backup:
 
@@ -85,26 +85,28 @@ B=$(ls -1d /srv/backup/20* | tail -1); sudo ls -la "$B"      # newest; or /mnt/n
 
 ### Database dump into a scratch Postgres
 
-Same major version as the live database (`postgres:17`), no ports, no volume:
+Same major version as the live database (`postgres:17`), no network, no ports, and the data directory on tmpfs. The image declares a volume for its data directory, so without `--tmpfs` Docker creates an anonymous volume that outlives the container (a copy of the database left on disk):
 
 ```bash
-docker run -d --name restore-test -e POSTGRES_USER=n8n -e POSTGRES_PASSWORD=restoretest -e POSTGRES_DB=n8n postgres:17
+docker run -d --name restore-test --network none --tmpfs /var/lib/postgresql/data \
+  -e POSTGRES_USER=n8n -e POSTGRES_DB=n8n -e POSTGRES_HOST_AUTH_METHOD=trust postgres:17
 until docker logs restore-test 2>&1 | grep -q 'init process complete'; do sleep 1; done
 until docker exec restore-test pg_isready -U n8n -q; do sleep 1; done
 
-sudo gunzip -c "$B/n8n-db.sql.gz" | docker exec -i restore-test psql -q -U n8n -d n8n -v ON_ERROR_STOP=1 && echo "RESTORE OK"
+sudo gunzip -c "$B/n8n-db.sql.gz" | docker exec -i restore-test psql -q -X -U n8n -d n8n -v ON_ERROR_STOP=1 && echo "RESTORE OK"
 
 # compare with live: workflows, credentials
 docker exec restore-test psql -U n8n -d n8n -tA -c 'SELECT count(*) FROM workflow_entity' -c 'SELECT count(*) FROM credentials_entity'
 docker exec ai-n8n-db-1  psql -U n8n -d n8n -tA -c 'SELECT count(*) FROM workflow_entity' -c 'SELECT count(*) FROM credentials_entity'
 
-docker rm -f restore-test
+docker rm -fv restore-test
 ```
 
 - Wait for `init process complete` (the image creates the database on first start) and `pg_isready` before restoring.
 - `ON_ERROR_STOP=1` makes a bad dump fail loudly instead of half-loading.
-- `litellm-db.sql.gz` should restore the same way with `litellm` as user and database; only the n8n dump has been tested.
-- While the container runs, aihub-mon raises a **rogue container** alert ([docs/09](09-monitoring.md#2-security-tripwires)); it clears when the container is removed.
+- `litellm-db.sql.gz` restores the same way with `litellm` as user and database. Good tables to compare: `"LiteLLM_VerificationToken"` (virtual keys) and `"LiteLLM_SpendLogs"` (grows all day, so compare with live rows older than the dump).
+- `--network none` and trust auth: nothing can reach the container, so it needs no password.
+- While a container like this runs, aihub-mon raises a **rogue container** alert ([docs/09](09-monitoring.md#2-security-tripwires)); it clears when the container is removed. The drill's own containers are exempt.
 
 ### One file from `aihub-config.tar.gz`
 
@@ -118,7 +120,31 @@ sudo diff ~/restore-test/srv/ai/compose.yaml /srv/ai/compose.yaml
 sudo rm -rf ~/restore-test                                        # the archive holds .env and other secrets
 ```
 
-A difference just means the file changed after that night's backup. On this build the archive is about 850 MB and 330 entries.
+A difference just means the file changed after that night's backup. On this build the archive is about 850 MB and 360 entries.
+
+### Restore drill (monthly)
+
+[`host/bin/aihub-restore-drill`](../host/bin/aihub-restore-drill), run by [`aihub-restore-drill.timer`](../systemd/aihub-restore-drill.timer) on the first Sunday of each month at 03:30 (an hour after the nightly backup; `Persistent=true`). `setup.sh` installs it and enables the timer. It takes about 15 seconds:
+
+1. Waits if `aihub-backup` is still running, then takes the newest dated folder; it must be younger than `BACKUP_MAX_AGE_H` (26 h).
+2. Checks both dumps are valid gzip, then restores each into its own scratch `postgres:17` (as above: no network, no ports, tmpfs, `ON_ERROR_STOP=1`) and compares row counts with the live database:
+
+   | Database | Must equal live | Range check |
+   |---|---|---|
+   | n8n | `workflow_entity`, `credentials_entity`, `user` | |
+   | LiteLLM | `LiteLLM_VerificationToken`, `_prisma_migrations` | `LiteLLM_SpendLogs`: between the live rows older than the dump minus 10 minutes and the live rows older than the dump |
+
+3. Lists `aihub-config.tar.gz` (`tar -tzf`, which also checks the gzip stream) and requires `srv/ai/.env`, `srv/ai/compose.yaml`, `etc/aihub/gpu.env`, `etc/fstab`, `usr/local/bin/aihub-mon` and `usr/local/bin/aihub-backup`.
+4. Checks the NAS copy of that night: same three files, same size and SHA-256.
+
+The scratch containers are always removed, also on failure or `systemctl stop`. The result goes to `/var/lib/aihub-mon/restore-drill.json` and the journal; aihub-mon turns it into the `Restore test` sensors and alert 6 fires if the drill failed or is older than 36 days ([docs/09](09-monitoring.md)).
+
+```bash
+sudo systemctl start aihub-restore-drill && journalctl -u aihub-restore-drill -n 3 -o cat   # "Restore drill OK: backup …; tar_entries …; nas match; …"
+systemctl list-timers aihub-restore-drill.timer
+```
+
+A count mismatch right after a change is expected (a workflow or key added or deleted since the backup): run `aihub-backup`, then the drill again.
 
 ## 5. Separate: pre-update backups
 

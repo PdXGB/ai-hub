@@ -39,6 +39,9 @@ CFG = {
     "NAS_BACKUP_DIR": "/mnt/nas/aihub",   # off-box copy; empty = skip
     "NAS_MAX_AGE_H": "27",
     "COMFYUI_UNIT": "comfyui.service",    # empty = skip
+    "RESTORE_STATE": "/var/lib/aihub-mon/restore-drill.json",   # written by aihub-restore-drill; empty = skip
+    "RESTORE_MAX_AGE_D": "36",            # monthly drill (first Sunday) + a few days
+    "RESTORE_IMAGE": "postgres:17",       # the drill's scratch container image (tripwire exemption)
 }
 if os.path.exists(ENV_FILE):
     for ln in open(ENV_FILE):
@@ -175,10 +178,46 @@ def health():
             problems.append("NAS copy " + ("unreachable or missing" if a is None else f"{a:.0f} h old"))
     d["backups_ok"] = "OFF" if problems else "ON"
     d["backup_problems"] = problems
+    d.update(restore_drill())
     return d
 
 
+def restore_drill():
+    """Result of the last aihub-restore-drill run: OFF if it failed, never ran, or is older than RESTORE_MAX_AGE_D."""
+    path = CFG["RESTORE_STATE"].strip()
+    if not path:
+        return {"restore_test_problems": [], "restore_test_details": {}}     # sensors stay unknown
+    problems, details, age = [], {}, None
+    try:
+        r = json.load(open(path))
+        age = num((time.time() - float(r["epoch"])) / 86400)
+        details = dict(r.get("details", {}), last_run=r.get("time"))
+        problems = list(r.get("problems", [])) or ([] if r.get("ok") else ["restore drill failed"])
+        if age > float(CFG["RESTORE_MAX_AGE_D"]):
+            problems.append(f"last restore drill {age:.0f} days ago")
+    except FileNotFoundError:
+        problems = ["restore drill has never run"]
+    except Exception as e:
+        problems = [f"restore drill result unreadable ({type(e).__name__})"]
+    return {"restore_test_ok": "OFF" if problems else "ON", "restore_test_age_d": age,
+            "restore_test_problems": problems, "restore_test_details": details}
+
+
 # ---------------------------------------------------------------- containers
+def drill_container(c, labels):
+    """aihub-restore-drill's scratch Postgres. Exempt from the rogue-container tripwire only if every detail
+    matches AND the drill process named in its label is alive; a leftover or look-alike still alerts."""
+    pid = labels.get("aihub.restore-drill", "")
+    if not (c.get("Names", "").startswith("aihub-restore-drill-") and c.get("Image") == CFG["RESTORE_IMAGE"]
+            and not c.get("Ports") and c.get("Networks") == "none" and str(c.get("LocalVolumes", "0")) == "0"
+            and pid.isdigit()):
+        return False
+    try:
+        return b"aihub-restore-drill" in open(f"/proc/{pid}/cmdline", "rb").read()
+    except OSError:
+        return False
+
+
 def containers():
     out = sh(["docker", "ps", "-a", "--format", "{{json .}}"])
     stack, foreign = {}, []
@@ -194,7 +233,7 @@ def containers():
             if st == "running" and "(unhealthy)" in c.get("Status", ""):
                 st = "unhealthy"
             stack[svc] = {"state": st, "status": c.get("Status", "")}
-        elif c.get("State") == "running":
+        elif c.get("State") == "running" and not drill_container(c, labels):
             foreign.append(f'{c["Names"]} ({c.get("Image", "?")})')
     up = sum(1 for v in stack.values() if v["state"] == "running")
     return {"containers": stack, "containers_up": up, "containers_total": len(stack),
@@ -397,6 +436,8 @@ ENTITIES = [
     (S, "disk_max_used_pct", "Fullest disk", "%", None, "measurement", "mdi:harddisk", {"attr": "disk_mounts"}),
     (S, "backup_age_h", "Backup age", "h", None, "measurement", "mdi:backup-restore", {}),
     (S, "nas_backup_age_h", "NAS backup age", "h", None, "measurement", "mdi:nas", {}),
+    (S, "restore_test_age_d", "Restore test age", "d", None, "measurement", "mdi:database-check",
+     {"attr": "restore_test_details"}),
     (S, "containers_up", "Containers up", None, None, "measurement", "mdi:docker", {"attr": "containers"}),
     (S, "ollama_loaded", "Ollama loaded", None, None, None, "mdi:brain", {"attr": "ollama_models"}),
     (S, "cloud_spend_30d", "Cloud spend 30 days", "USD", "monetary", None, "mdi:cash", {"attr": "cloud_spend_by_model"}),
@@ -412,6 +453,7 @@ ENTITIES = [
     (B, "litellm_ok", "LiteLLM", None, "running", None, None, {}),
     (B, "disks_ok", "Disks", None, None, None, "mdi:harddisk", {"attr": "disk_mounts"}),
     (B, "backups_ok", "Backups", None, None, None, "mdi:backup-restore", {"attr": "backup_problems"}),
+    (B, "restore_test_ok", "Restore test", None, None, None, "mdi:database-check", {"attr": "restore_test_problems"}),
     (B, "ollama_ok", "Ollama", None, "running", None, None, {}),
     (B, "containers_ok", "All containers", None, "running", None, None, {}),
     (B, "reboot_required", "Reboot required", None, "update", None, None, {}),

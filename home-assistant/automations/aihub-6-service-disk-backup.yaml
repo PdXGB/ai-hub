@@ -1,4 +1,4 @@
-# 6. ComfyUI / LiteLLM / disks / backups problem for 10 minutes (these checks replaced the old health script)
+# 6. ComfyUI / LiteLLM / disks / backups / restore drill problem for 10 minutes
 alias: AIHub - service, disk or backup problem
 triggers:
   - trigger: state
@@ -7,6 +7,7 @@ triggers:
       - binary_sensor.aihub_litellm
       - binary_sensor.aihub_disks
       - binary_sensor.aihub_backups
+      - binary_sensor.aihub_restore_test
     to: "off"
     for: "00:10:00"
 actions:
@@ -16,6 +17,7 @@ actions:
       message: >-
         {% set e = trigger.entity_id %}
         {% if e.endswith('backups') %}{{ (state_attr(e, 'items') or ['backup check failed']) | join(', ') }}
+        {% elif e.endswith('restore_test') %}{{ (state_attr(e, 'items') or ['restore drill failed']) | join(', ') }}
         {% elif e.endswith('disks') %}{% for m, p in (state_attr(e, 'items') or {}).items() if p is none or p >= 85 %}{{ m }} {{ p ~ '%' if p is not none else 'unreadable' }}{{ ', ' if not loop.last }}{% endfor %}
         {% else %}{{ trigger.to_state.name }} is down on the server.{% endif %}
       data:

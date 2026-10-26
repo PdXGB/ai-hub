@@ -13,7 +13,7 @@ tar -czf "$DEST/aihub-config.tar.gz" \
   /etc/docker/daemon.json /etc/netplan /etc/systemd/system/comfyui.service \
   /etc/systemd/system/nvidia-power-limit.service /etc/systemd/system/comfyui-idle-free.* \
   /etc/systemd/system/nvidia-persistenced.service.d /etc/apt/apt.conf.d/51unattended-nvidia \
-  /usr/local/bin/comfyui-idle-free /usr/local/bin/aihub-backup /usr/local/bin/aihub-gpu-power \
+  /usr/local/bin/comfyui-idle-free /usr/local/bin/aihub-backup /usr/local/bin/aihub-gpu-power /usr/local/bin/aihub-restore-drill \
   /etc/aihub /etc/systemd/system/comfyui.service.d /etc/fstab \
   /usr/local/bin/aihub-mon /etc/aihub-mon.env /etc/systemd/system/aihub-* /var/lib/aihub-mon \
   /root/.config/mosquitto_pub 2>/dev/null || true

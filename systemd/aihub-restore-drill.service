@@ -1,0 +1,7 @@
+[Unit]
+Description=aihub restore drill (newest backup into scratch postgres)
+After=docker.service aihub-backup.service
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/aihub-restore-drill
+TimeoutStartSec=30min

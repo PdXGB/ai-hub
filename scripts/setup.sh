@@ -14,7 +14,7 @@
 #                         (/srv/ai is owned by the sudo user; .env stays mode 600)
 #   /srv/models, /srv/data, /srv/backup   data directories, /srv/backup/pre-update
 #   /etc/aihub/gpu.env    GPU UUIDs + a power limit per card for the systemd units
-#   /usr/local/bin        aihub-backup, aihub-gpu-power, aihub-mon, comfyui-idle-free
+#   /usr/local/bin        aihub-backup, aihub-gpu-power, aihub-mon, aihub-restore-drill, comfyui-idle-free
 #   /etc/...              docker daemon.json (log rotation merged into an existing one),
 #                         unattended-upgrades NVIDIA blacklist,
 #                         aihub-mon.env, MQTT login for aihub-mon (optional)
@@ -311,7 +311,7 @@ for k in GPU_MAIN_POWER_LIMIT GPU_HA_POWER_LIMIT; do
   [ -n "$(envval "$k" "$GPUENV")" ] || NOTES+=("$k is empty in /etc/aihub/gpu.env: the $r GPU stays at its stock power limit.")
 done
 
-for b in aihub-backup aihub-gpu-power aihub-mon comfyui-idle-free; do place "$REPO/host/bin/$b" "$ROOT/usr/local/bin/$b" 755 || true; done
+for b in aihub-backup aihub-gpu-power aihub-mon aihub-restore-drill comfyui-idle-free; do place "$REPO/host/bin/$b" "$ROOT/usr/local/bin/$b" 755 || true; done
 # daemon.json: nvidia-ctk usually creates it first, so add the log keys to it if they're missing
 DJ="$ROOT/etc/docker/daemon.json"
 if [ ! -e "$DJ" ]; then
@@ -387,7 +387,7 @@ if [ -z "$ROOT" ]; then
   systemctl daemon-reload
   for n in "${NEW_UNITS[@]}"; do
     case "$n" in
-      nvidia-power-limit.service|aihub-backup.timer|comfyui-idle-free.timer) systemctl enable --now "$n" ;;
+      nvidia-power-limit.service|aihub-backup.timer|aihub-restore-drill.timer|comfyui-idle-free.timer) systemctl enable --now "$n" ;;
       aihub-mon.timer|aihub-mon-daily.timer|aihub-mon-listen.service) [ "$MQTT_OK" = 1 ] && systemctl enable --now "$n" ;;
       comfyui.service)
         if [ -x /srv/comfyui/.venv/bin/python ]; then systemctl enable --now "$n"

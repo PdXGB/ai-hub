@@ -14,6 +14,7 @@ Why MQTT discovery rather than HA's REST API or Glances: the entities persist an
 | AI | Models loaded in Ollama (with % on GPU), cloud spend over 30 days per route and as % of the budget (from `LiteLLM_SpendLogs`) |
 | Disks | Fullest of `/`, `/srv/models/ollama`, `/srv/models/comfyui`, `/srv/backup`; `Disks` off at 85% |
 | Backups | Age of the newest local backup (max 26 h) and NAS copy (max 27 h); `Backups` off if either is missing or stale ([docs/10](10-backups.md)) |
+| Restore test | Result of the monthly restore drill: `Restore test` off if the last drill failed, never ran, or is older than 36 days; `Restore test age` in days, with the row counts as attributes ([docs/10](10-backups.md#restore-drill-monthly)) |
 | Updates | APT packages, container images with newer builds (`update-image.sh --check`), firmware (`fwupdmgr`) |
 | Security | Tripwires, below |
 | Online | Goes `unavailable` when the server stops publishing for 180 s |
@@ -25,11 +26,13 @@ Why MQTT discovery rather than HA's REST API or Glances: the entities persist an
 | SSH login from outside `ALLOWED_NETS` | Any accepted login from an address not in your networks |
 | SSH brute force | ≥ `SSH_FAIL_ALERT` (10) failed logins in 24 h |
 | sudo | Any failed sudo attempt |
-| Rogue containers | A running container outside the `ai` compose project |
+| Rogue containers | A running container outside the `ai` compose project. One exception: the restore drill's scratch Postgres, and only while the drill runs (below) |
 | New listening ports | Any TCP listener not in the baseline |
 | Critical file changes | SHA-256 change to passwd/shadow/group, sudoers, sshd config, `authorized_keys`, cron, systemd units, `ld.so.preload` |
 
 The baseline (ports and file hashes) is in `/var/lib/aihub-mon/baseline.json` (mode 600) and is taken on the first run. **Acknowledging** (button, or `sudo aihub-mon --accept`) re-takes the baseline **and** moves the SSH/sudo look-back window to now; without that, a brute-force alert would stay on for 24 hours. Rogue-container alerts don't clear on acknowledgement; stop the container.
+
+**Restore drill exception.** `aihub-restore-drill` starts a scratch `postgres:17` container for a few seconds. aihub-mon skips it only if **every** detail matches: name `aihub-restore-drill-*`, label `aihub.restore-drill=<PID>`, image `postgres:17` (`RESTORE_IMAGE`), no published ports, network `none`, no volume, and that PID is a running `aihub-restore-drill` process. A leftover after the drill exits, or anything that differs, still raises the alert. Root can fake all of that, but root can also stop aihub-mon, so it adds no new hole.
 
 **Limits.** These are tripwires, not an intrusion detection system. Anyone with root can stop or edit aihub-mon. What they can't hide is that it stopped: the "offline" alert still fires. Expect a file-change alert after `apt full-upgrade` (it rewrites units); check what changed, then acknowledge.
 
@@ -50,14 +53,14 @@ sudo HOME=/root mosquitto_pub -t aihub/test -m hello    # broker login works?
 sudo aihub-mon --dry-run                                # print what would be published
 ```
 
-The device appears under **Settings → Devices & services → MQTT → AIHub** within a minute.
+The device appears under **Settings → Devices & services → MQTT → AIHub** within a minute. On this build it has 58 entities: 45 sensors and binary sensors, the 2 buttons, and one sensor per container (11). (It was 56 before the two restore-test entities.)
 
 | File | Purpose |
 |---|---|
 | `/usr/local/bin/aihub-mon` | The script |
 | `/etc/aihub-mon.env` (from [`host/aihub-mon.env.example`](../host/aihub-mon.env.example)) | Allowed networks, thresholds, budget, optional GPU UUIDs, backup paths |
 | `/root/.config/mosquitto_pub` | Broker address and login |
-| `/var/lib/aihub-mon/` | Baseline and last update check |
+| `/var/lib/aihub-mon/` | Baseline, last update check, last restore drill result (`restore-drill.json`) |
 
 | Unit | Runs |
 |---|---|
@@ -91,4 +94,4 @@ Anyone with the broker credentials can press a button, so automation 5 notifies 
 | 3 | Container down | "All containers" off for 5 min; lists which |
 | 4 | GPU problem | `GPU` off for 3 min (driver/library mismatch, a card off the bus) |
 | 5 | Alerts acknowledged | Every acknowledgement |
-| 6 | Service, disk or backup | ComfyUI, LiteLLM, Disks or Backups off for 10 min |
+| 6 | Service, disk or backup | ComfyUI, LiteLLM, Disks, Backups or Restore test off for 10 min |

@@ -50,7 +50,8 @@ for u in nvidia-power-limit.service comfyui.service \
          aihub-brief.service aihub-brief.timer \
          aihub-mon.service aihub-mon.timer \
          aihub-mon-daily.service aihub-mon-daily.timer \
-         aihub-mon-listen.service; do
+         aihub-mon-listen.service \
+         aihub-restore-drill.service aihub-restore-drill.timer; do
   [ -e "/etc/systemd/system/$u" ] && cp_if "/etc/systemd/system/$u" "$OUT/systemd/$u"
 done
 for d in comfyui.service.d nvidia-persistenced.service.d; do
@@ -58,7 +59,7 @@ for d in comfyui.service.d nvidia-persistenced.service.d; do
     mkdir -p "$OUT/systemd/$d"; cp -a /etc/systemd/system/$d/*.conf "$OUT/systemd/$d/" && echo "  + /etc/systemd/system/$d/"
   fi
 done
-for s in aihub-backup aihub-brief aihub-gpu-power aihub-mon comfyui-idle-free; do
+for s in aihub-backup aihub-brief aihub-gpu-power aihub-mon aihub-restore-drill comfyui-idle-free; do
   [ -e "/usr/local/bin/$s" ] && cp_if "/usr/local/bin/$s" "$OUT/host/bin/$s"
 done
 cp_if /etc/docker/daemon.json                 "$OUT/host/docker-daemon.json"

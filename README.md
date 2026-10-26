@@ -1,12 +1,12 @@
 # ai-hub
 
-A bare-metal, private AI hub for a household: local LLMs, image/video generation, voice for Home Assistant, and metered access to cloud models (Claude, Gemini, Grok) behind one gateway.
+A bare-metal, private AI server for a homestead. Its main job is to make Home Assistant smarter with local AI horsepower: a voice assistant on its own GPU, and local models that keep the house's data on the property. It's also the playground for everything else: AI agents, automations, image and video generation, whatever comes next, all tried out at home instead of on someone else's platform.
 
-Built and documented for a YouTube series. Everything here comes from the real, running machine, scrubbed of secrets and LAN details by [`scripts/scrub.sh`](scripts/scrub.sh).
+Local first. The chat models run on the box (the main one is an *abliterated* build, with the refusal training removed, so you can talk to it openly). The big names (Claude, Gemini, Grok) are wired in behind one metered gateway for the jobs that need extra horsepower, but the goal is to keep it in house and use what we've got.
+
+High-tech redneck: Star Trek meets Mayberry. Everything here comes from the real, running machine, scrubbed of secrets and LAN details by [`scripts/scrub.sh`](scripts/scrub.sh).
 
 > **About the names:** my server's hostname is `groot`, and my assistant is called Groot. Neither appears in the files: the tools use an `aihub` prefix (`aihub-mon`, `aihub-backup`, `/etc/aihub`), the docs say "the server" or `<hostname>`, and the prompt templates leave the assistant's name for you to fill in. Pick your own.
-
-> 📺 **Video:** _link coming soon_
 
 ## What it runs
 
@@ -74,10 +74,11 @@ The two GPUs never share a model. Each service is pinned to one card by UUID; se
 
 ```
 compose/          compose.yaml, .env.example, litellm/config.example.yaml, searxng/settings.example.yml
-systemd/          GPU power limits, ComfyUI (+ gpu.conf drop-in), idle VRAM release, backup and
-                  aihub-mon timers, persistenced override, gpu.env.example
+systemd/          GPU power limits, ComfyUI (+ gpu.conf drop-in), idle VRAM release, backup, restore drill
+                  and aihub-mon timers, persistenced override, gpu.env.example
 host/             docker daemon.json, unattended-upgrades NVIDIA blacklist, aihub-mon.env.example
-host/bin/         aihub-backup, aihub-gpu-power, aihub-mon, comfyui-idle-free  (install to /usr/local/bin)
+host/bin/         aihub-backup, aihub-gpu-power, aihub-mon, aihub-restore-drill, comfyui-idle-free
+                  (install to /usr/local/bin)
 home-assistant/   dashboard card, automations/ (aihub-mon alerts), voice prompt template
 open-webui/       ask_model tool, assistant system prompt template
 scripts/          setup.sh, scrub.sh, update-image.sh, monthly-update.sh, aihub-gpu-audit.sh, gpu-burn.py
@@ -121,7 +122,7 @@ Secrets live only in `/srv/ai/.env` (mode 600), outside the clone. `compose/.env
 7. [Knowledge base (RAG)](docs/07-knowledge-base.md)
 8. [ComfyUI: image and video](docs/08-comfyui.md)
 9. [Monitoring: aihub-mon](docs/09-monitoring.md)
-10. [Backups](docs/10-backups.md)
+10. [Backups and the monthly restore drill](docs/10-backups.md)
 11. [Updates](docs/11-updates.md)
 
 [Troubleshooting](docs/troubleshooting.md)

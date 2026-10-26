@@ -1,0 +1,251 @@
+#!/usr/bin/env python3
+"""aihub-restore-drill — prove the newest nightly backup restores (run monthly by aihub-restore-drill.timer).
+
+  aihub-restore-drill          run the drill, write the result for aihub-mon, exit 1 on any problem
+
+Steps, all read-only for the live stack:
+  1. newest dated folder in BACKUP_DIR (must be younger than BACKUP_MAX_AGE_H); waits while aihub-backup runs
+  2. gzip -t both dumps; restore each into a scratch postgres:17 (no network, no ports, data dir on tmpfs,
+     psql ON_ERROR_STOP=1); compare key row counts with the live databases
+  3. tar -tzf the config archive; required members present
+  4. the NAS copy of that night has the same files (size + sha256)
+The scratch containers are always removed. aihub-mon exempts them from its rogue-container tripwire only
+while this process is alive (name, label = this PID, image, no ports, no network, no volume).
+
+Config: /etc/aihub-mon.env (BACKUP_DIR, BACKUP_MAX_AGE_H, NAS_BACKUP_DIR, COMPOSE_DIR, RESTORE_STATE)
+Result: RESTORE_STATE (default /var/lib/aihub-mon/restore-drill.json) and one journal line.
+"""
+import glob, gzip, hashlib, json, os, re, signal, subprocess, sys, time
+
+ENV_FILE = os.environ.get("AIHUB_MON_ENV", "/etc/aihub-mon.env")
+CFG = {"BACKUP_DIR": "/srv/backup", "BACKUP_MAX_AGE_H": "26", "NAS_BACKUP_DIR": "/mnt/nas/aihub",
+       "COMPOSE_DIR": "/srv/ai", "RESTORE_STATE": "/var/lib/aihub-mon/restore-drill.json"}
+if os.path.exists(ENV_FILE):
+    for ln in open(ENV_FILE):
+        m = re.match(r"^\s*([A-Z_]+)\s*=\s*\"?(.*?)\"?\s*$", ln)
+        if m:
+            CFG[m.group(1)] = m.group(2)
+
+IMAGE = "postgres:17"            # same major version as the live databases
+NAME = f"aihub-restore-drill-{{db}}-{os.getpid()}"
+LABEL = f"aihub.restore-drill={os.getpid()}"
+FILES = ("n8n-db.sql.gz", "litellm-db.sql.gz", "aihub-config.tar.gz")
+REQUIRED = ("srv/ai/.env", "srv/ai/compose.yaml", "etc/aihub/gpu.env", "etc/fstab",
+            "usr/local/bin/aihub-mon", "usr/local/bin/aihub-backup")
+# database: compose service, user = database name, {table: rule}. "equal" = same as live now;
+# "before_dump" = live rows whose startTime (UTC) is older than the dump file (allows 10 min of logging lag)
+DBS = {
+    "n8n": ("n8n-db", {"workflow_entity": "equal", "credentials_entity": "equal", '"user"': "equal"}),
+    "litellm": ("litellm-db", {'"LiteLLM_VerificationToken"': "equal", "_prisma_migrations": "equal",
+                               '"LiteLLM_SpendLogs"': "before_dump"}),
+}
+
+started = []          # scratch containers to remove
+problems, details = [], {}
+
+
+def run(cmd, timeout=120, **kw):
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, stdin=kw.pop("stdin", subprocess.DEVNULL), **kw)
+
+
+def logs(name):
+    r = run(["docker", "logs", name], 30)
+    return r.stdout + r.stderr
+
+
+def cleanup():
+    for n in started:
+        run(["docker", "rm", "-fv", n], 60)
+    started.clear()
+
+
+def on_signal(sig, _frame):
+    raise SystemExit(f"stopped by signal {sig}")
+
+
+def newest_backup():
+    dirs = sorted(d for d in glob.glob(os.path.join(CFG["BACKUP_DIR"], "20*")) if os.path.isdir(d))
+    if not dirs:
+        raise RuntimeError(f"no backup folders in {CFG['BACKUP_DIR']}")
+    b = dirs[-1]
+    age = (time.time() - os.path.getmtime(b)) / 3600
+    details["backup"] = os.path.basename(b)
+    details["backup_age_h"] = round(age, 1)
+    if age > float(CFG["BACKUP_MAX_AGE_H"]):
+        problems.append(f"newest backup {os.path.basename(b)} is {age:.0f} h old")
+    return b
+
+
+def wait_for_backup_job():
+    for _ in range(120):                        # up to 60 min
+        if run(["systemctl", "is-active", "aihub-backup.service"], 30).stdout.strip() not in ("active", "activating"):
+            return
+        time.sleep(30)
+    raise RuntimeError("aihub-backup still running after 60 min")
+
+
+def live_count(svc, user, table, sql=None):
+    """Count rows in the live database; retries for up to 5 min (the stack may still be starting after a boot)."""
+    q = sql or f"SELECT count(*) FROM {table}"
+    for i in range(30):
+        r = run(["docker", "compose", "--project-directory", CFG["COMPOSE_DIR"], "exec", "-T", svc,
+                 "psql", "-X", "-U", user, "-d", user, "-tA", "-v", "ON_ERROR_STOP=1", "-c", q], 60)
+        if r.returncode == 0 and r.stdout.strip().isdigit():
+            return int(r.stdout.strip())
+        time.sleep(10)
+    raise RuntimeError(f"live {svc}: count failed: {(r.stderr or r.stdout).strip()[:200]}")
+
+
+def scratch_restore(db, svc, tables, dump):
+    user, name = db, NAME.format(db=db)
+    r = run(["docker", "run", "-d", "--name", name, "--label", LABEL, "--network", "none",
+             "--tmpfs", "/var/lib/postgresql/data:rw,size=2g",
+             "-e", f"POSTGRES_USER={user}", "-e", f"POSTGRES_DB={user}", "-e", "POSTGRES_HOST_AUTH_METHOD=trust",
+             IMAGE], 120)
+    if r.returncode:
+        raise RuntimeError(f"{db}: scratch container failed to start: {r.stderr.strip()[:200]}")
+    started.append(name)
+    deadline = time.time() + 120
+    while "init process complete" not in logs(name):
+        if time.time() > deadline:
+            raise RuntimeError(f"{db}: scratch postgres did not initialise in 120 s")
+        time.sleep(1)
+    while run(["docker", "exec", name, "pg_isready", "-U", user, "-q"], 30).returncode:
+        if time.time() > deadline:
+            raise RuntimeError(f"{db}: scratch postgres not ready in 120 s")
+        time.sleep(1)
+
+    with open(dump, "rb") as f:
+        gz = subprocess.Popen(["gunzip", "-c"], stdin=f, stdout=subprocess.PIPE)
+        r = subprocess.run(["docker", "exec", "-i", name, "psql", "-q", "-X", "-U", user, "-d", user,
+                            "-v", "ON_ERROR_STOP=1"], stdin=gz.stdout, capture_output=True, text=True, timeout=900)
+        gz.stdout.close()
+        gz.wait()
+    if r.returncode or gz.returncode:
+        raise RuntimeError(f"{db}: restore failed: {(r.stderr or 'gunzip error').strip()[:200]}")
+
+    dump_epoch = int(os.path.getmtime(dump))
+    counts = {}
+    for table, rule in tables.items():
+        q = run(["docker", "exec", name, "psql", "-X", "-U", user, "-d", user, "-tA", "-v", "ON_ERROR_STOP=1",
+                 "-c", f"SELECT count(*) FROM {table}"], 60)
+        if q.returncode or not q.stdout.strip().isdigit():
+            problems.append(f"{db}: {table.strip(chr(34))} unreadable after restore")
+            continue
+        got, t = int(q.stdout.strip()), table.strip('"')
+        if rule == "equal":
+            want = live_count(svc, user, table)
+            counts[t] = f"{got}/{want}"
+            if got != want:
+                problems.append(f"{db}: {t} restored {got}, live {want}")
+        else:   # before_dump: live rows older than the dump, with a 10 min window for late log writes
+            hi = live_count(svc, user, table, f"SELECT count(*) FROM {table} WHERE \"startTime\" < "
+                                              f"to_timestamp({dump_epoch}) AT TIME ZONE 'UTC'")
+            lo = live_count(svc, user, table, f"SELECT count(*) FROM {table} WHERE \"startTime\" < "
+                                              f"to_timestamp({dump_epoch - 600}) AT TIME ZONE 'UTC'")
+            counts[t] = f"{got} (live before dump {lo}-{hi})"
+            if not lo <= got <= hi:
+                problems.append(f"{db}: {t} restored {got}, live before dump {lo}-{hi}")
+    details[db] = counts
+    run(["docker", "rm", "-fv", name], 60)
+    started.remove(name)
+
+
+def check_tar(path):
+    r = run(["tar", "-tzf", path], 900)
+    if r.returncode:
+        problems.append(f"config archive unreadable: {r.stderr.strip()[:150]}")
+        return
+    members = {m.rstrip("/") for m in r.stdout.splitlines()}
+    details["tar_entries"] = len(members)
+    missing = [m for m in REQUIRED if m not in members]
+    if missing:
+        problems.append("config archive is missing " + ", ".join(missing))
+
+
+def sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def check_nas(b):
+    nas = CFG["NAS_BACKUP_DIR"].strip()
+    if not nas:
+        details["nas"] = "skipped (NAS_BACKUP_DIR empty)"
+        return
+    copy = os.path.join(nas, os.path.basename(b))
+    if run(["timeout", "15", "test", "-d", copy], 20).returncode:   # timeout guards a hung NAS mount
+        problems.append(f"NAS copy {os.path.basename(b)} missing or unreachable")
+        details["nas"] = "missing"
+        return
+    bad = []
+    for fn in FILES:
+        a, n = os.path.join(b, fn), os.path.join(copy, fn)
+        if not os.path.exists(n) or os.path.getsize(a) != os.path.getsize(n) or sha256(a) != sha256(n):
+            bad.append(fn)
+    details["nas"] = "match" if not bad else "differs: " + ", ".join(bad)
+    if bad:
+        problems.append("NAS copy differs: " + ", ".join(bad))
+
+
+def write_result(t0):
+    ok = not problems
+    res = {"ok": ok, "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "epoch": int(time.time()),
+           "duration_s": round(time.time() - t0), "problems": problems, "details": details}
+    path = CFG["RESTORE_STATE"]
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(res, f, indent=1)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+    summary = "; ".join(f"{k} {v}" for k, v in details.items() if k in ("backup", "tar_entries", "nas"))
+    if ok:
+        print(f"Restore drill OK: {summary}; n8n {details.get('n8n')}; litellm {details.get('litellm')} ({res['duration_s']} s)")
+    else:
+        print(f"Restore drill FAILED: {' | '.join(problems)}", file=sys.stderr)
+    return ok
+
+
+def main():
+    if len(sys.argv) > 1:
+        print(__doc__.strip())
+        return 0 if sys.argv[1] in ("-h", "--help") else 2
+    signal.signal(signal.SIGTERM, on_signal)
+    signal.signal(signal.SIGINT, on_signal)
+    t0 = time.time()
+    try:
+        wait_for_backup_job()
+        b = newest_backup()
+        for fn in FILES:
+            if not os.path.isfile(os.path.join(b, fn)):
+                raise RuntimeError(f"{fn} missing in {os.path.basename(b)}")
+        for db in DBS:
+            try:
+                with gzip.open(os.path.join(b, f"{db}-db.sql.gz")) as g:
+                    while g.read(1 << 20):
+                        pass
+            except Exception as e:
+                problems.append(f"{db}: dump is not valid gzip ({e})")
+                continue
+            svc, tables = DBS[db]
+            try:
+                scratch_restore(db, svc, tables, os.path.join(b, f"{db}-db.sql.gz"))
+            except (RuntimeError, subprocess.TimeoutExpired) as e:
+                problems.append(str(e))
+        check_tar(os.path.join(b, "aihub-config.tar.gz"))
+        check_nas(b)
+    except (RuntimeError, subprocess.TimeoutExpired, OSError) as e:
+        problems.append(str(e))
+    except SystemExit as e:
+        problems.append(f"drill interrupted: {e}")
+    finally:
+        cleanup()
+    return 0 if write_result(t0) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

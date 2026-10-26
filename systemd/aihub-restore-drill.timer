@@ -1,0 +1,7 @@
+[Unit]
+Description=Run aihub restore drill monthly (first Sunday)
+[Timer]
+OnCalendar=Sun *-*-01..07 03:30:00
+Persistent=true
+[Install]
+WantedBy=timers.target

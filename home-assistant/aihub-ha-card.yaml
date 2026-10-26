@@ -44,6 +44,7 @@ cards:
           - { condition: state, entity: binary_sensor.aihub_all_containers, state: "off" }
           - { condition: state, entity: binary_sensor.aihub_disks, state: "off" }
           - { condition: state, entity: binary_sensor.aihub_backups, state: "off" }
+          - { condition: state, entity: binary_sensor.aihub_restore_test, state: "off" }
     card:
       type: markdown
       content: >-
@@ -59,6 +60,7 @@ cards:
         {% for m, pct in (state_attr('binary_sensor.aihub_disks', 'items') or {}).items() if pct is none or pct >= 85 %}{% set ns.p = ns.p + ['Disk ' ~ m ~ ': ' ~ (pct ~ '%' if pct is not none else 'unreadable')] %}{% endfor %}
         {% endif %}
         {% for b in state_attr('binary_sensor.aihub_backups', 'items') or [] %}{% set ns.p = ns.p + ['Backup: ' ~ b] %}{% endfor %}
+        {% for b in state_attr('binary_sensor.aihub_restore_test', 'items') or [] %}{% set ns.p = ns.p + ['Restore test: ' ~ b] %}{% endfor %}
         {% for a in state_attr('sensor.aihub_security_alerts', 'items') or [] %}{% set ns.p = ns.p + ['🔐 ' ~ a] %}{% endfor %}
         {% if ns.p %}<ha-alert alert-type="error" title="AIHub needs attention">{{ ns.p | join('<br>') }}</ha-alert>{% endif %}
         {% if is_state('binary_sensor.aihub_security', 'on') %}<small>Security items you expected? Press <b>Acknowledge</b> below.</small>{% endif %}
@@ -129,7 +131,7 @@ cards:
       | <ha-icon icon="mdi:cpu-64-bit"></ha-icon> | load {{ v('sensor.aihub_cpu_load', 2) }} · {{ t('sensor.aihub_cpu_temperature') }} · RAM {{ v('sensor.aihub_ram_used') }}% · up since {{ as_timestamp(states('sensor.aihub_last_boot'), 0) | timestamp_custom('%b %-d') }} |
       | <ha-icon icon="mdi:docker"></ha-icon> | {{ states('sensor.aihub_containers_up') }} running · fullest disk {{ v('sensor.aihub_fullest_disk') }}% |
       | <ha-icon icon="mdi:cash"></ha-icon> | ${{ v('sensor.aihub_cloud_spend_30_days', 2) }} of $50 this 30 days ({{ v('sensor.aihub_cloud_budget_used') }}%) |
-      | <ha-icon icon="mdi:backup-restore"></ha-icon> | local {{ v('sensor.aihub_backup_age') }} h ago · NAS {{ v('sensor.aihub_nas_backup_age') }} h ago |
+      | <ha-icon icon="mdi:backup-restore"></ha-icon> | local {{ v('sensor.aihub_backup_age') }} h ago · NAS {{ v('sensor.aihub_nas_backup_age') }} h ago · restore test {{ v('sensor.aihub_restore_test_age') }} d ago |
       | <ha-icon icon="mdi:package-up"></ha-icon> | {{ states('sensor.aihub_container_updates') }} containers · {{ states('sensor.aihub_apt_updates') }} apt · {{ states('sensor.aihub_firmware_updates') }} firmware · checked {{ relative_time(as_datetime(states('sensor.aihub_updates_checked'))) if as_datetime(states('sensor.aihub_updates_checked')) else '–' }} ago |
       | <ha-icon icon="mdi:shield-account"></ha-icon> | last SSH {{ states('sensor.aihub_ssh_last_login') }} · {{ v('sensor.aihub_ssh_failures_24h') }} failed / 24 h |
 
