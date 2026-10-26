@@ -113,6 +113,19 @@ Every process should be on the UUID you meant. On this build: Ollama (the 27B, ~
 
 `scripts/aihub-gpu-audit.sh` prints all of this, plus driver versions, PCIe link speed per card, the compose GPU sections and the systemd units, in one read-only pass. Run it before and after hardware changes and keep the output.
 
+After-install record on this build (audit plus a short generation on each card):
+
+| | RTX 3090 | RTX 2060 12 GB |
+|---|---|---|
+| Slot | CPU x16 | Chipset x4 |
+| Link at idle (P8) | 2.5 GT/s x16 | 2.5 GT/s x4 |
+| Link under load (P2) | 8 GT/s (Gen3) x16 | 8 GT/s (Gen3) x4 |
+| Power limit (default) | 325 W (350 W) | 184 W (184 W) |
+| Runs | Ollama 27B (~19 GB), ComfyUI (idle ~0.3 GB) | Whisper (~1.9 GB), `ollama-ha` `qwen3:8b` (~6 GB) |
+| VRAM in use / total | ~19.4 / 24 GB | ~8 / 12 GB |
+
+`lspci -vv` and `nvidia-smi` report both links as "2.5GT/s (downgraded)" at idle. That's the cards saving power, not a fault: the link goes back to Gen3 as soon as work starts. To check a link, read `pcie.link.gen.current` while the card is busy.
+
 ## 5. Burn in the new card
 
 Before trusting a new or used card, load it alone for five minutes:
@@ -128,7 +141,7 @@ A pass prints `PASS`, and dmesg shows nothing new.
 
 | Symptom | Meaning |
 |---|---|
-| `lspci` shows the card, link at **2.5 GT/s** (Gen1) instead of 8 GT/s | Link trained at the lowest speed: seating or power problem |
+| Link stays at **2.5 GT/s** (Gen1) **under load** instead of 8 GT/s | Link trained at the lowest speed: seating or power problem. At idle, Gen1 is normal (see §4) |
 | "retraining non-functional downstream link" | The link is failing; the card will usually drop next |
 | "not ready … giving up", "Card not present" | The card didn't come back from a low-power state |
 | `NVRM: … fallen off the bus` | The driver lost the card. Not a driver problem: the link died first |

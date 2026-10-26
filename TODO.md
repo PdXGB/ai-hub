@@ -11,7 +11,7 @@ Working rules
 - Raw notes and every file a chat produced go in `_handoffs/`: `chat-NN-<topic>.md` plus `_handoffs/files/`. That folder is its own **private** repo (`_handoffs`) and is gitignored by this public one.
 - A chat may be closed only after it has a row in the Chat migration log below, marked complete.
 
-_Last updated: 2026-10-26 (chat 09 complete). Public repo: PdXGB/ai-hub; private notes: PdXGB/_handoffs._
+_Last updated: 2026-10-25 (chat 10 complete; chats 11 and 12 next, can run in parallel). Public repo: PdXGB/ai-hub; private notes: PdXGB/_handoffs._
 
 ---
 
@@ -21,28 +21,29 @@ Each chat adds its row when it has: (1) saved its handoff and all files to `_han
 
 | # | Chat / topic | Handoff file | Files saved | TODO updated | Safe to close |
 |---|---|---|---|---|---|
-| 01 | Main build: hardware, Ubuntu, driver, stack, HA, ComfyUI, tunnel, repo start | `chat-01-main-build.md` | `files/`: photo-to-video workflow, aihub-brief, HA prompt template, HA health automation, local-ha route. plus `the server-build-plan.md` (build doc export). Both repos pushed 2026-10-25 | Yes | **Yes** |
-| 02 | Container planning; 2060 HA GPU install, "fallen off the bus" fix, UUID pinning, whisper moved to 2060 | `the server-2060-ha-gpu.md` (kept original name; no chat-02 rename) | `files/chat-02-2060-ha-gpu/`: aihub-gpu-audit.sh, burn.py, prep/pin script, diagnose + load test, whisper move, gpu_ha anchor, ollama-ha (proposed, never run), applied power-limit/ComfyUI snippets, repo-chat prompt, README index | Yes | **Yes** |
+| 01 | Main build: hardware, Ubuntu, driver, stack, HA, ComfyUI, tunnel, repo start | `chat-01-main-build.md` | `files/`: photo-to-video workflow, aihub-brief, HA prompt template, HA health automation, local-ha route. plus the build plan (build doc export; private notes, original file name). Both repos pushed 2026-10-25 | Yes | **Yes** |
+| 02 | Container planning; 2060 HA GPU install, "fallen off the bus" fix, UUID pinning, whisper moved to 2060 | chat 02 GPU notes (private notes, original file name; no chat-02 rename) | `files/chat-02-2060-ha-gpu/`: aihub-gpu-audit.sh, burn.py, prep/pin script, diagnose + load test, whisper move, gpu_ha anchor, ollama-ha (proposed, never run), applied power-limit/ComfyUI snippets, repo-chat prompt, README index | Yes | **Yes** |
 | 03 | Public repo + GitHub Desktop setup; README/docs scaffold, scrub.sh, gpu-burn.py | `chat-03-repo-setup.md` | `files/chat-03-repo-setup/`: README, docs 01-05 + troubleshooting, scrub.sh, gpu-burn.py | Yes | **Yes** |
 | 04 | assistant system prompt + model routing (`ask_model` tool), HA voice prompt, local-deep + keep-alive, update workflow (update-image.sh, monthly-update.sh, dbx), aihub-mon HA monitoring/security | `chat-04-prompt-updates-monitoring.md` | `files/chat-04-prompt-updates-monitoring/`: open-webui/ (system prompt, ask_model.py), home-assistant/ (voice prompt template, card, 5 automations), updates/ (update-image.sh, monthly-update.sh), aihub-mon/ (aihub-mon.py, installer, update paste) | Yes | **Yes** |
 | 05 | Repo hygiene (parallel to 03): GitHub Desktop/email guidance, `.gitattributes`, `.gitignore`, skeleton, cross-chat handoff prompt, review of the server-run scrub.sh | `chat-05-repo-hygiene-handoffs.md` | `files/chat-05-repo-hygiene/`: **recovered the server-run scrub.sh**, handoff prompt, .gitattributes/.gitignore snapshots, README index | Yes | **Yes** |
 | 06 | External-AI handoff prompt (parallel session; claimed 06 before the audit chat, which became 07) | `chat-06-external-ai-prompt.md` (reconstructed by chat 08 from the files; no transcript) | `files/chat-06-audit-scrub/`: external-ai-handoff-prompt.md | Yes | **Yes** |
-| 07 | Leak audit + fixes, scrub.sh rebuild (5 the server runs), key rotation, aihub-mon v2 (multi-GPU, absorbs the old health script), HA card v2 + automation 6, `ollama-ha` (qwen3:8b on the 2060, 8–10 s → 0.4 s), gpu.env on the server, aihub-backup coverage, docs 04/05/troubleshooting/README/LICENSE, `setup.sh` | `chat-07-scrub-aihub-mon.md` | `files/chat-07-scrub-aihub-mon/`: scrub.sh, setup.sh, aihub-mon, aihub-backup, HA card + automation 6 + template, docs-chat prompt, README index | Yes | **Yes** |
+| 07 | Leak audit + fixes, scrub.sh rebuild (5 runs on the server), key rotation, aihub-mon v2 (multi-GPU, absorbs the old health script), HA card v2 + automation 6, `ollama-ha` (qwen3:8b on the 2060, 8–10 s → 0.4 s), gpu.env on the server, aihub-backup coverage, docs 04/05/troubleshooting/README/LICENSE, `setup.sh` | chat 07 handoff (private notes, original file name) | chat 07 files folder: scrub.sh, setup.sh, aihub-mon, aihub-backup, HA card + automation 6 + template, docs-chat prompt, README index | Yes | **Yes** |
 | 08 | Docs: 02 Ubuntu/NVIDIA, 03 Docker stack, 06–11 feature docs (routing, RAG, ComfyUI, monitoring, backups, updates), docs/05 §8 HA MCP; `open-webui/` (ask_model v0.2.1, genericized assistant prompt); README Quick start via setup.sh; TZ variable; monthly-update/scrub/docs fixes | `chat-08-docs.md` | `files/chat-08-docs/`: linkcheck.py, leak.sh | Yes | **Yes** |
 | 09 | Review pass + fixes; update-image pre-update backups, setup.sh daemon.json merge + /srv/ai ownership; restore test (docs/10 §4); `pcie_aspm=off` proven required; repo re-created clean and published as `ai-hub`; full neutral rename to `aihub` (repo + server, via a tested migration script); docs/01 drive rationale | `chat-09-review-release.md` | `files/chat-09-review-release/`: migrate-to-aihub.sh, recreate-public-repo.ps1, ha-ready/, pre-rename/ snapshot, next-chat-prompt.md | Yes | **Yes** |
+| 10 | Health check; TODO cleanup after the rename; direct server access over SSH for Claude sessions; GPU audit re-run → docs/04 after-install table + idle-link fix; future plans (server repo mirror, chat archive, per-card power limits, feature ideas) | `chat-10-ops.md` | `files/chat-10-ops/`: raw GPU audit, next-chat prompts (11 features, 12 GPU power) | Yes | **Yes** |
 
 ## Done
 
-- [x] Public repo and private notes repo (`_handoffs`) published to GitHub, both private until review; commits use the GitHub noreply email
+- [x] Public repo and private notes repo (`_handoffs`) published to GitHub, both private until review (the public repo went public in chat 09); commits use the GitHub noreply email
 - [x] `.gitattributes` (LF everywhere) and `.gitignore` (.env, staging/, _handoffs/, models, logs) (chat 05)
-- [x] Standard 11-section handoff prompt for all the server chats; `_handoffs/` workflow (chat 05)
+- [x] Standard 11-section handoff prompt for all chats; `_handoffs/` workflow (chat 05)
 - [x] `scripts/scrub.sh`: copies live configs, scrubs secrets/IPs/domain/UUIDs/user, runs a leak check. First run: PASS
 - [x] Scrubbed configs promoted to the repo:
   - `compose/`: `compose.yaml`, `.env.example` (all variables documented), `litellm/config.example.yaml`, `searxng/settings.example.yml`
   - `systemd/`: power limit, ComfyUI plus its `gpu.conf` drop-in, idle-free, backup and health timers, persistenced override, `gpu.env.example`
   - `host/`: `docker-daemon.json`, `51unattended-nvidia`, `bin/` (aihub-backup, comfyui-idle-free; the old health script later retired in chat 07)
 - [x] systemd GPU pinning reworked **in the repo** to `EnvironmentFile=/etc/aihub/gpu.env` (systemd won't expand `${VAR}` inside `Environment=`); power limit is a variable. applied on the server in chat 07
-- [x] `the old health script` multi-GPU temperature bug fixed in the repo (checks the hottest GPU)
+- [x] Old health script's multi-GPU temperature bug fixed in the repo (checks the hottest GPU; script later retired)
 - [x] README with architecture diagram; docs 01, 04 and troubleshooting drafted; `scripts/gpu-burn.py`
 - [x] GitHub Desktop installed; repo created in Desktop (README + MIT LICENSE) and published
 - [x] docs 02, 03 and 05 outlined (headings + TODO notes)
@@ -69,10 +70,10 @@ Each chat adds its row when it has: (1) saved its handoff and all files to `_han
 - [x] `scripts/aihub-gpu-audit.sh` promoted from the server via scrub (chat 07)
 - [x] `scripts/scrub.sh`: server-run (sudo/python) version promoted with fixes (chat 07): SMB credentials discovered from `credentials=` in `/etc/fstab`; output dir guarded by a marker file (no unguarded `rm -rf`); NAS mount/name scrubbed; leak check covers 10.x/172.16-31.x, emails, more token types, passwords in URLs, NAS name, username; `~/.scrub-literals` support; collects aihub-gpu-audit, update scripts and aihub-mon. First the server run (chat 07) caught a personal name in aihub-mon's HA device info, but missed the tunnel domain hardcoded in compose (`N8N_HOST`/`WEBHOOK_URL`); fixed: domain discovered from compose again, plus a generic public-hostname leak check; SMB username no longer scrubbed (it collided with a script name). Re-run on the server (runs 3–5 PASS) and promoted (chat 07; confirmed against `staging/run5` in chat 09)
 - [x] README (chat 07): repo layout incl. `host/` and `home-assistant/`, `/srv/ai/.env`, licenses (MIT code, CC BY 4.0 `docs/` + `docs/LICENSE`), live vs planned HA voice path, aihub-mon. Remove the "work in progress" note once setup.sh exists
-- [x] **Before going public:** re-create the GitHub repo from a clean folder as one initial commit (steps to be written) — **required**: two old blobs in the current history (pre-chat-07 `aihub-backup` and `the old health script`) still contain the NAS name and its mount path (re-checked chat 08). The working tree is clean.
+- [x] **Before going public:** re-create the GitHub repo from a clean folder as one initial commit (steps to be written) — **required**: two old blobs in the current history (pre-chat-07 `aihub-backup` and the old health script) still contain the NAS name and its mount path (re-checked chat 08). The working tree is clean.
 - [x] `TZ` is now a variable (`${TZ}` in compose, documented in `.env.example`) (chat 08). `TZ` added to the server's `/srv/ai/.env` via setup.sh (chat 07). `setup.sh` prompts for it, defaulting to the server time zone (chat 07); re-running setup.sh on the server fills it
 - [x] `scripts/monthly-update.sh`: post-reboot hint calls `aihub-mon --dry-run` instead of the retired old health script (chat 08). Applied on the server (chat 07)
-- [x] `scripts/scrub.sh`: no longer collects the old health script units/script; its redaction rules for `/etc/the old health script.conf` and the webhook ID stay as a safety net (chat 08)
+- [x] `scripts/scrub.sh`: no longer collects the old health script's units/script (chat 08); its leftover redaction rules were dropped in chat 09
 - [x] `update-image.sh` (chat 09): pre-update backups moved to `/srv/backup/pre-update/` (backup drive, mirrored to the NAS), mode 700, newest 3 kept per service (`KEEP_BACKUPS`). docs/10 §5 and docs/11 updated. Installed on the server (chat 09)
 - [x] Promote chat 04 files (chat 07 promoted from the server via scrub: `scripts/update-image.sh`, `scripts/monthly-update.sh`, `scripts/aihub-gpu-audit.sh`, `host/bin/aihub-mon`, `host/aihub-mon.env.example`, aihub-mon units; remaining items below) (source: `_handoffs/files/chat-04-prompt-updates-monitoring/`; collect live copies via scrub where they exist on the server):
   - [x] `scripts/update-image.sh`, `scripts/monthly-update.sh` (chat 07)
@@ -137,7 +138,7 @@ Each chat adds its row when it has: (1) saved its handoff and all files to `_han
 
 ## Imports from other AIs
 
-- [ ] Run the external-AI handoff prompt (private notes: `_handoffs/files/chat-06-audit-scrub/external-ai-handoff-prompt.md`) in each non-Claude chat that did the server work. Save output as `_handoffs/ext-<ai>-<topic>.md` plus `_handoffs/files/ext-<ai>-<topic>/`. A Claude chat imports each one (check against the repo, update this file) and adds an `ext-` row to the migration log
+- [ ] Run the external-AI handoff prompt (private notes: `_handoffs/files/chat-06-audit-scrub/external-ai-handoff-prompt.md`) in each non-Claude chat that did work on the server. Save output as `_handoffs/ext-<ai>-<topic>.md` plus `_handoffs/files/ext-<ai>-<topic>/`. A Claude chat imports each one (check against the repo, update this file) and adds an `ext-` row to the migration log
 
 ## Before going public: re-create the repo (clean history)
 
@@ -160,7 +161,7 @@ _Chat 09 verified the new `.git` before publishing: 1 commit ("Initial commit", 
 - [x] Migration script written and sandbox-tested: dry run changes nothing, apply, refuses a second run, rollback restores every file (private notes, since it names the old files) (chat 09)
 - [x] Migration applied on the server (chat 09): old units stopped, old HA device cleared (56 topics), paths/units/NAS folder renamed, new aihub-mon/aihub-backup/scripts installed, power limits 325/184 W, ComfyUI restarted idle, 4 timers active, baseline accepted. Backup + old files in `/root/aihub-migration-<stamp>/` on the server
 - [x] Old HA device gone; AIHub device has 56 entities (chat 09)
-- [x] Old "Groot - …" HA automations deleted (chat 09)
+- [x] Old pre-rename HA automations deleted (chat 09)
 - [x] Home Assistant (chat 09, PdXGB): `aihub-1..6` automations pasted with the notify service, new card, Acknowledge alerts tested, leftover MQTT entities removed
 - [x] Verified (chat 09): manual `aihub-backup` run (NAS copy; archive has `.env`, `gpu.env`, `fstab`, `aihub-mon`); scrub run on the server: LEAK CHECK PASS, every collected file identical to the repo except the three expected (searxng secret key, `comfyui.service` user line, `aihub-mon.env` live values vs the example)
 - [x] Final leak/link audit (chat 09): leak PASS, links PASS, 58 files, hostname only in the README naming note; pushed commit verified (all 135 objects clean)
@@ -168,12 +169,22 @@ _Chat 09 verified the new `.git` before publishing: 1 commit ("Initial commit", 
 
 ## Automations to review and install
 
+- [ ] **Feature ideas (chat 11):** investigate what else is worth adding besides the morning brief (automations, n8n flows, HA voice features, monitoring, ComfyUI uses), ranked by value vs effort and risk to the repo/server match. Output: a short list with a recommendation, added below as new items. Research and planning only; nothing installed
 - [ ] **Morning brief** (`aihub-brief`): written in chat 01, never installed. Review, decide, install; scrub then collects it.
 - [ ] **Photo-to-video n8n form:** works on the LAN; uploads through the Cloudflare tunnel never reach n8n. Rebuild to respond immediately plus a "latest video" link (Cloudflare's 100 s limit).
 
+## Future: repos and chat archive on the server (planned in chat 10, not started)
+
+- [ ] Clone both repos (public + private notes) on the server; GitHub stays the sync point. Start as a read-only mirror (`git pull --ff-only` on a timer) so the laptop stays the only place that edits and pushes
+- [ ] Add the clones to `aihub-backup` so they reach the NAS nightly (server + NAS + GitHub + laptop copies)
+- [ ] **PdXGB:** link the organized chat folders (an example of the layout to follow) for the chat archive below; private, so the link goes in the private notes only
+- [ ] Private chat archive: exported chats organized by topic as markdown in a private repo on the server, backed up the same way. Optionally indexed in Open WebUI's knowledge base ([docs/07](docs/07-knowledge-base.md)) so the local model can search it. Never in the public repo
+- [ ] Later, if wanted: edit and push from the server too (git identity = noreply, per-repo SSH deploy keys); scrub.sh output into a staging folder next to the clone, then a reviewed promote
+
 ## To do: on the server (not repo work, tracked here so nothing gets lost)
 
-- [x] the old health script retired (chat 07): timer disabled, files moved to `/root/retired-the old health script/` on the server, removed from the repo; old old health-alerts HA automation deleted (chat 09)
+- [x] Old health script retired (chat 07): timer disabled, files moved to a `/root/retired-*` folder on the server, removed from the repo; its old health-alerts HA automation deleted (chat 09)
+- [x] Claude sessions run server commands directly over SSH from the laptop (dedicated user and key; details in the private notes). Checks run without asking; changes still only after PdXGB's OK; still no git (chat 10)
 - [ ] memtest86+ overnight (RAM at 3600 MT/s, 4x32 GB)
 - [ ] Monthly routine: run `/srv/ai/monthly-update.sh` (scripted in chat 04), then acknowledge the expected aihub-mon file-change alert
 - [x] aihub-backup now also archives `/etc/aihub`, the ComfyUI drop-in, `/etc/fstab`, aihub-mon (binary, env, units, baseline) and the MQTT login file (chat 07; live on the server, backup `aihub-backup.pre-chat07`). promoted via scrub run 5
@@ -184,12 +195,12 @@ _Chat 09 verified the new `.git` before publishing: 1 commit ("Initial commit", 
 - [x] Rotated the LiteLLM virtual key `open-webui-ask-model` (old value was exposed in a screenshot); new key in the Ask Model valve, tested via gemini (chat 07)
 - [x] `update-image.sh`: `ollama-ha` in ORDER and health checks (chat 07); aihub-mon and the HA card pick up new containers automatically
 - [x] assistant model's built-in tools trimmed (confirmed chat 09): 22 built-in functions in 6 groups (default 38), plus `ask_model` and 23 HA MCP tools = 46; docs/06 now lists them. (aihub-mon cloud-spend sensor and the daily update check confirmed working in chat 07)
-- [ ] Re-run `~/aihub-gpu-audit.sh` with both GPUs installed (after-install record for docs/04) (chat 02)
+- [x] Re-run `~/aihub-gpu-audit.sh` with both GPUs installed (chat 10): matches docs 01/02/04 and the README; after-install table added to docs/04 §4. Both links idle at Gen1 and reach Gen3 under load (3090 x16, 2060 x4), dmesg clean; docs/04 symptom table corrected (Gen1 only matters under load)
 - [x] `pcie_aspm=off` tested (chat 09): removed it, rebooted, and the 2060 fell off the bus; restored from `/etc/default/grub.pre-chat09`, rebooted, both GPUs back (2060 Gen3 x4, dmesg clean, full stack up). It stays
 - [x] Chat 09 `update-image.sh` installed in `/srv/ai` (sha256 matches the repo); `/srv/backup/pre-update` created (700, the user); the one old `/srv/backups` entry moved there and `/srv/backups` removed. Backup of the old script: `update-image.sh.pre-chat09`
 - [x] Old old health-alerts HA automation deleted (confirmed chat 09)
 - [x] ask_model v0.2.1 pasted into Open WebUI; verified in webui.db (chat 09)
 - [x] Removed the stray exited cloudflared test container `heuristic_jones` (chat 09)
-- [ ] Later cleanup on the server: the migration backup folder in `/root` and the retired health-script folder (after a few weeks), old staging folders, the unpacked repo copy and tarball in the home folder
-- [ ] Optional: power-cap the 2060 (stock 184 W, uncapped); would need a second line or variable in the power-limit service (chat 02)
+- [ ] Later cleanup on the server: the migration backup folder in `/root` and the retired health-script folder (after a few weeks), old staging folders, the unpacked repo copy and tarball in the home folder, the chat 07 `nvidia-power-limit.service.pre-gpuenv` backup in `/etc/systemd/system`
+- [ ] **Per-card power limits (chat 12):** every GPU gets its own limit setting when it's installed (today only the main card has one; the 2060 runs at stock 184 W). `gpu.env` gets a limit per card (empty = stock), the power-limit service applies each one, `setup.sh` asks per card (default = the card's stock limit, checked against its min/max). Then docs/04 §1, `gpu.env.example`, README if needed; sandbox test, install with backup and rollback, scrub comparison. PdXGB picks the 2060's value
 - [ ] Optional: Ask Model `max_tokens` 4096 -> 8192 if Grok answers get cut off; add a VPN range to aihub-mon `ALLOWED_NETS` if SSHing in remotely
