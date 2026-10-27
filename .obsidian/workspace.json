@@ -185,6 +185,7 @@
   },
   "active": "79a7a29eb92b2aee",
   "lastOpenFiles": [
+    "_handoffs/files/chat-15-library/shared_edits.py",
     "_handoffs/files/chat-14-voice-regression/sandbox/stub_litellm.py",
     "_handoffs/files/chat-14-voice-regression/sandbox",
     "scripts/voice-test.py",
@@ -197,7 +198,6 @@
     "_handoffs/files/chat-15-library/_scratch",
     "_handoffs/files/chat-15-library",
     "_handoffs/chat-14-voice-regression.md",
-    "_handoffs/files/chat-14-voice-regression/_scratch",
     "_handoffs/files/chat-13-restore-drill/install-plan.md",
     "_handoffs/files/chat-13-restore-drill/_scratch/pre-chat13/README.md",
     "_handoffs/files/chat-13-restore-drill/_scratch/pre-chat13/10-backups.md",
