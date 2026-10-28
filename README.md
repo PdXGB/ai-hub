@@ -23,6 +23,7 @@ High-tech redneck: Star Trek meets Mayberry. Everything here comes from the real
 | cloudflared | Cloudflare Tunnel (plus Access) for remote use | — |
 | ComfyUI (native, systemd) | Image and video generation | Main |
 | aihub-mon (systemd) | Health, update and security reporting to Home Assistant over MQTT | — |
+| Samba (native, LAN only) | Shares the AI library: notes from every AI chat, sorted by topic ([docs/12](docs/12-library.md)) | — |
 
 Home Assistant voice reaches its model through LiteLLM's `local-ha` route, so it shares the gateway's keys, budgets and logs; see [docs/05](docs/05-home-assistant.md).
 
@@ -76,12 +77,16 @@ The two GPUs never share a model. Each service is pinned to one card by UUID; se
 compose/          compose.yaml, .env.example, litellm/config.example.yaml, searxng/settings.example.yml
 systemd/          GPU power limits, ComfyUI (+ gpu.conf drop-in), idle VRAM release, backup, restore drill
                   and aihub-mon timers, persistenced override, gpu.env.example
-host/             docker daemon.json, unattended-upgrades NVIDIA blacklist, aihub-mon.env.example
+host/             docker daemon.json, unattended-upgrades NVIDIA blacklist, aihub-mon.env.example,
+                  samba/smb.conf (AI library shares)
 host/bin/         aihub-backup, aihub-gpu-power, aihub-mon, aihub-restore-drill, comfyui-idle-free
                   (install to /usr/local/bin)
-home-assistant/   dashboard card, automations/ (aihub-mon alerts), voice prompt template
+home-assistant/   dashboard card, automations/ (aihub-mon alerts), voice prompt template,
+                  voice-test/cases.json (fixed requests for the voice regression test)
+library/_shared/  AI library skeleton: rules, topic template, prompts, export converters
 open-webui/       ask_model tool, assistant system prompt template
-scripts/          setup.sh, scrub.sh, update-image.sh, monthly-update.sh, aihub-gpu-audit.sh, gpu-burn.py
+scripts/          setup.sh, scrub.sh, update-image.sh, monthly-update.sh, aihub-gpu-audit.sh, gpu-burn.py,
+                  voice-test.py (HA voice regression test, docs/05 §9)
 docs/             step-by-step build notes
 ```
 
@@ -124,6 +129,7 @@ Secrets live only in `/srv/ai/.env` (mode 600), outside the clone. `compose/.env
 9. [Monitoring: aihub-mon](docs/09-monitoring.md)
 10. [Backups and the monthly restore drill](docs/10-backups.md)
 11. [Updates](docs/11-updates.md)
+12. [AI library: every chat, sorted by topic](docs/12-library.md)
 
 [Troubleshooting](docs/troubleshooting.md)
 

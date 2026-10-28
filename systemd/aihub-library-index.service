@@ -1,0 +1,7 @@
+[Unit]
+Description=aihub AI library -> Open WebUI knowledge sync
+After=docker.service
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/aihub-library-index
+TimeoutStartSec=2h

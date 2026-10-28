@@ -1,0 +1,5 @@
+# Raw transcripts and credentials stay local
+_raw/
+**/secrets.md
+**/_export/
+*.zip

@@ -41,13 +41,13 @@ def read_key(env_file):
     if k:
         return k
     try:
-        for line in open(env_file):
+        for line in open(env_file):                  # last non-empty value wins
             m = re.match(r"\s*VOICE_TEST_KEY\s*=\s*(.*)", line)
-            if m:
-                return m.group(1).strip().strip("'\"")
+            if m and m.group(1).strip().strip("'\""):
+                k = m.group(1).strip().strip("'\"")
     except OSError as e:
         print(f"voice-test: can't read {env_file}: {e.strerror} (run as the owner or with sudo)", file=sys.stderr)
-    return ""
+    return k
 
 
 def render_prompt(template_text, entities, now):
@@ -190,7 +190,11 @@ def main():
     cases_path = a.cases or find("cases.json", os.path.join(HERE, "cases.json"), os.path.join(repo, "voice-test", "cases.json"))
     tmpl_path = a.template or find("prompt template", os.path.join(HERE, "extended-openai-prompt-template.txt"),
                                    os.path.join(repo, "extended-openai-prompt-template.txt"))
-    fx = json.load(open(cases_path))
+    try:
+        fx = json.load(open(cases_path))
+    except (OSError, ValueError) as e:
+        print(f"voice-test: can't read {cases_path}: {e}", file=sys.stderr)
+        return 2
     cases = [c for c in fx["cases"] if not a.case or c["id"] in a.case]
     if a.list:
         for c in fx["cases"]:

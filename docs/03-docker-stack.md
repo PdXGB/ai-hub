@@ -155,6 +155,8 @@ curl -s localhost:4000/key/generate -H "Authorization: Bearer $MK" -H "Content-T
   -d '{"key_alias":"open-webui-ask-model"}'
 ```
 
+The HA voice regression test has its own key, limited to `local-ha` and stored in `/srv/ai/.env` ([docs/05 §9](05-home-assistant.md#9-voice-regression-test)).
+
 Change an existing key with `POST /key/update`; revoke one with `POST /key/delete` and `{"key_aliases":["<alias>"]}`. Treat key values like passwords.
 
 Open WebUI itself is configured with the master key (`OPENAI_API_KEY: ${LITELLM_MASTER_KEY}` in compose).

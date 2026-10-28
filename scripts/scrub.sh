@@ -34,7 +34,7 @@ if [ -e "$OUT" ]; then
     find "$OUT" -mindepth 1 -delete
   fi
 fi
-mkdir -p "$OUT"/{compose/litellm,compose/searxng,systemd,scripts,host/bin}
+mkdir -p "$OUT"/{compose/litellm,compose/searxng,systemd,scripts,host/bin,host/samba,home-assistant/voice-test}
 touch "$OUT/$MARK"
 
 cp_if() { if [ -e "$1" ]; then cp -a "$1" "$2" && echo "  + $1"; else echo "  - (missing) $1"; fi; }
@@ -51,7 +51,8 @@ for u in nvidia-power-limit.service comfyui.service \
          aihub-mon.service aihub-mon.timer \
          aihub-mon-daily.service aihub-mon-daily.timer \
          aihub-mon-listen.service \
-         aihub-restore-drill.service aihub-restore-drill.timer; do
+         aihub-restore-drill.service aihub-restore-drill.timer \
+         aihub-library-index.service aihub-library-index.timer; do
   [ -e "/etc/systemd/system/$u" ] && cp_if "/etc/systemd/system/$u" "$OUT/systemd/$u"
 done
 for d in comfyui.service.d nvidia-persistenced.service.d; do
@@ -59,15 +60,19 @@ for d in comfyui.service.d nvidia-persistenced.service.d; do
     mkdir -p "$OUT/systemd/$d"; cp -a /etc/systemd/system/$d/*.conf "$OUT/systemd/$d/" && echo "  + /etc/systemd/system/$d/"
   fi
 done
-for s in aihub-backup aihub-brief aihub-gpu-power aihub-mon aihub-restore-drill comfyui-idle-free; do
+for s in aihub-backup aihub-brief aihub-gpu-power aihub-library-index aihub-mon aihub-restore-drill comfyui-idle-free; do
   [ -e "/usr/local/bin/$s" ] && cp_if "/usr/local/bin/$s" "$OUT/host/bin/$s"
 done
 cp_if /etc/docker/daemon.json                 "$OUT/host/docker-daemon.json"
 cp_if /etc/apt/apt.conf.d/51unattended-nvidia "$OUT/host/51unattended-nvidia"
 cp_if /etc/aihub-mon.env                      "$OUT/host/aihub-mon.env.example"
+cp_if /etc/samba/smb.conf                     "$OUT/host/samba/smb.conf"
 cp_if "$USER_HOME/aihub-gpu-audit.sh"         "$OUT/scripts/aihub-gpu-audit.sh"
 cp_if "$AI/update-image.sh"                   "$OUT/scripts/update-image.sh"
 cp_if "$AI/monthly-update.sh"                 "$OUT/scripts/monthly-update.sh"
+cp_if "$AI/voice-test/voice-test.py"          "$OUT/scripts/voice-test.py"
+cp_if "$AI/voice-test/cases.json"             "$OUT/home-assistant/voice-test/cases.json"
+cp_if "$AI/voice-test/extended-openai-prompt-template.txt" "$OUT/home-assistant/extended-openai-prompt-template.txt"
 # Never collected: /root/.config/mosquitto_pub (broker login), .env values,
 # SMB credential files. They are only READ below so their values get scrubbed.
 
@@ -224,6 +229,7 @@ rules += [
     (r'(?<!sha256:)\b[0-9a-f]{32,}\b', '<REDACTED_HEX>'),                # keeps image digests
     (r'/home/' + re.escape(user) + r'\b', '/home/<user>'),
     (r'(?m)^(User|Group)=' + re.escape(user) + r'$', r'\1=<user>'),
+    (r'(?m)^(\s*valid users = )' + re.escape(user) + r'$', r'\1<user>'),       # Samba shares (host/samba)
 ]
 
 report = collections.defaultdict(collections.Counter)

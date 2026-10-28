@@ -10,11 +10,14 @@
 # What it does
 #   /srv/ai               compose.yaml, .env (secrets generated, the rest asked),
 #                         litellm/config.yaml (budgets), searxng/settings.yml (key),
-#                         update-image.sh, monthly-update.sh
+#                         update-image.sh, monthly-update.sh,
+#                         voice-test/ (HA voice regression test, docs/05 §9)
 #                         (/srv/ai is owned by the sudo user; .env stays mode 600)
 #   /srv/models, /srv/data, /srv/backup   data directories, /srv/backup/pre-update
+#   /srv/library          AI library skeleton: _shared/ (rules, templates, prompts, tools), work/, personal/ (docs/12)
 #   /etc/aihub/gpu.env    GPU UUIDs + a power limit per card for the systemd units
-#   /usr/local/bin        aihub-backup, aihub-gpu-power, aihub-mon, aihub-restore-drill, comfyui-idle-free
+#   /usr/local/bin        aihub-backup, aihub-gpu-power, aihub-library-index, aihub-mon, aihub-restore-drill,
+#                         comfyui-idle-free
 #   /etc/...              docker daemon.json (log rotation merged into an existing one),
 #                         unattended-upgrades NVIDIA blacklist,
 #                         aihub-mon.env, MQTT login for aihub-mon (optional)
@@ -186,6 +189,7 @@ else
 fi
 [ -e "$ROOT/etc/aihub-mon.env" ] || ask ALLOWED_NETS "Networks allowed to SSH in without an alert (space separated)" "${DET_NET:+$DET_NET }127.0.0.0/8 ::1/128 fe80::/10"
 [ -e "$ROOT/etc/aihub-mon.env" ] || ask NAS_BACKUP_DIR "Off-box backup folder (NAS mount; blank = none)" "/mnt/nas/aihub"
+ask LIBRARY_DIR "AI library folder (markdown notes for every AI, docs/12; blank = skip)" "/srv/library"
 if [ ! -e "$ROOT/root/.config/mosquitto_pub" ]; then
   ask MQTT_HOST "MQTT broker for aihub-mon (Home Assistant's LAN IP; blank = skip monitoring)" ""
   if [ -n "$MQTT_HOST" ]; then ask MQTT_USER "MQTT username" "aihub"; ask MQTT_PASSWORD "MQTT password" "" secret; fi
@@ -194,10 +198,13 @@ CLOUD_BUDGET=${CLOUD_BUDGET:-50}
 
 # --------------------------------------------------------------------------- /srv/ai
 hdr "Writing /srv/ai"
-install -d -m 755 "$AI" "$AI/litellm" "$AI/searxng"
+install -d -m 755 "$AI" "$AI/litellm" "$AI/searxng" "$AI/voice-test"
 place "$REPO/compose/compose.yaml" "$AI/compose.yaml" || true
 place "$REPO/scripts/update-image.sh"  "$AI/update-image.sh" 755 || true
 place "$REPO/scripts/monthly-update.sh" "$AI/monthly-update.sh" 755 || true
+place "$REPO/scripts/voice-test.py" "$AI/voice-test/voice-test.py" 755 || true
+place "$REPO/home-assistant/voice-test/cases.json" "$AI/voice-test/cases.json" || true
+place "$REPO/home-assistant/extended-openai-prompt-template.txt" "$AI/voice-test/extended-openai-prompt-template.txt" || true
 
 # .env: generated secrets + answers; fill gaps only
 GEN_VARS="LITELLM_MASTER_KEY LITELLM_SALT_KEY LITELLM_DB_PASSWORD WEBUI_SECRET_KEY N8N_ENCRYPTION_KEY N8N_DB_PASSWORD"
@@ -285,6 +292,35 @@ for m in /srv/models/ollama /srv/models/comfyui /srv/backup; do
   [ -z "$ROOT" ] && ! mountpoint -q "$m" && NOTES+=("$m is not a separate mount. Fine on one disk; see docs/01 and docs/02 for the layout.")
 done
 
+# --------------------------------------------------------------------------- AI library
+hdr "AI library"
+if [ -n "${LIBRARY_DIR:-}" ]; then
+  L="$ROOT$LIBRARY_DIR"; LIB_NEW=0; [ -e "$L" ] || LIB_NEW=1
+  OLD_UMASK=$(umask); umask 077                     # notes hold IPs and secrets.md: owner only
+  while IFS= read -r -d '' f; do
+    t="$L/${f#$REPO/library/}"; mkdir -p "$(dirname "$t")"   # mkdir honours the umask; install -D would make 755 dirs
+    place "$f" "$t" 600 || true
+  done \
+    < <(find "$REPO/library/_shared" -type f -print0 | sort -z)
+  for side in work personal; do
+    for d in topics _raw; do [ -d "$L/$side/$d" ] || { mkdir -p "$L/$side/$d"; CREATED+=("$L/$side/$d/"); }; done
+    place "$REPO/library/_shared/.gitignore" "$L/$side/.gitignore" 600 || true
+    place_text "$L/$side/INDEX.md" 600 < <(printf '# %s library index\n\nEvery topic in this library: entries, last touched. Rules: ../_shared/README.md\n\n| topic | entries | last touched |\n|---|---|---|\n' \
+      "${side^}") || true
+    place_text "$L/$side/README.md" 600 < <(printf '# %s library\n\nRules, entry format, templates and prompts: [`../_shared/README.md`](../_shared/README.md). Topic list: [`INDEX.md`](INDEX.md).\n\n- `topics/`: one folder per topic (copy `../_shared/_template/topic/`)\n- `_raw/<ai>/`: untouched transcripts for this library'"'"'s topics\n' \
+      "${side^}") || true
+  done
+  umask "$OLD_UMASK"
+  if [ "$LIB_NEW" = 1 ] && [ "$RUN_USER" != root ] && id -u "$RUN_USER" >/dev/null 2>&1; then chown -R "$RUN_USER": "$L"; fi
+  NOTES+=("AI library at $LIBRARY_DIR. To reach it from other computers (Samba, SMB3, LAN only) and for the backup line, see docs/12.")
+  if [ ! -e "$ROOT/etc/aihub/library-index.env" ]; then   # Open WebUI sync: key added by hand, timer enabled once it's set
+    install -d -m 755 "$ROOT/etc/aihub"; install -m 600 "$REPO/host/library-index.env.example" "$ROOT/etc/aihub/library-index.env"
+    CREATED+=("$ROOT/etc/aihub/library-index.env (add OWUI_API_KEY, docs/12 §6)")
+  fi
+else
+  say "  (skipped: no LIBRARY_DIR)"
+fi
+
 # --------------------------------------------------------------------------- host files
 hdr "Host files"
 # gpu.env: one UUID + power limit per card (empty limit = stock). Existing keys are never changed.
@@ -311,7 +347,7 @@ for k in GPU_MAIN_POWER_LIMIT GPU_HA_POWER_LIMIT; do
   [ -n "$(envval "$k" "$GPUENV")" ] || NOTES+=("$k is empty in /etc/aihub/gpu.env: the $r GPU stays at its stock power limit.")
 done
 
-for b in aihub-backup aihub-gpu-power aihub-mon aihub-restore-drill comfyui-idle-free; do place "$REPO/host/bin/$b" "$ROOT/usr/local/bin/$b" 755 || true; done
+for b in aihub-backup aihub-gpu-power aihub-library-index aihub-mon aihub-restore-drill comfyui-idle-free; do place "$REPO/host/bin/$b" "$ROOT/usr/local/bin/$b" 755 || true; done
 # daemon.json: nvidia-ctk usually creates it first, so add the log keys to it if they're missing
 DJ="$ROOT/etc/docker/daemon.json"
 if [ ! -e "$DJ" ]; then
@@ -388,6 +424,9 @@ if [ -z "$ROOT" ]; then
   for n in "${NEW_UNITS[@]}"; do
     case "$n" in
       nvidia-power-limit.service|aihub-backup.timer|aihub-restore-drill.timer|comfyui-idle-free.timer) systemctl enable --now "$n" ;;
+      aihub-library-index.timer)
+        if grep -q '^OWUI_API_KEY=..' /etc/aihub/library-index.env 2>/dev/null; then systemctl enable --now "$n"
+        else NOTES+=("aihub-library-index.timer installed but not enabled: put an Open WebUI API key in /etc/aihub/library-index.env (docs/12 §6), then: sudo systemctl enable --now aihub-library-index.timer"); fi ;;
       aihub-mon.timer|aihub-mon-daily.timer|aihub-mon-listen.service) [ "$MQTT_OK" = 1 ] && systemctl enable --now "$n" ;;
       comfyui.service)
         if [ -x /srv/comfyui/.venv/bin/python ]; then systemctl enable --now "$n"

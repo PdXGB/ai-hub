@@ -16,8 +16,9 @@ Each night `aihub-backup` writes a dated folder, `/srv/backup/YYYY-MM-DD/`:
 
 The tar archive holds:
 
-- `/srv/ai`: compose, **`.env`**, LiteLLM and SearXNG configs, update scripts
+- `/srv/ai`: compose, **`.env`**, LiteLLM and SearXNG configs, update scripts, the voice regression test
 - `/srv/data/open-webui`, `/srv/data/n8n`: app data (Open WebUI's chats, users, knowledge; n8n's files)
+- `/srv/library`: the AI library ([docs/12](12-library.md))
 - `/srv/comfyui/user`, `/srv/comfyui/custom_nodes`: ComfyUI workflows and settings, custom nodes
 - `/etc/docker/daemon.json`, `/etc/netplan`, `/etc/fstab`, `/etc/apt/apt.conf.d/51unattended-nvidia`
 - `/etc/aihub` (`gpu.env`), the systemd units and drop-ins (ComfyUI, power limit, idle-free, persistenced, `aihub-*`)

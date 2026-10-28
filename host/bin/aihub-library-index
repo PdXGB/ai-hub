@@ -1,0 +1,174 @@
+#!/usr/bin/env python3
+"""aihub-library-index — keep Open WebUI knowledge collections in step with the AI library (docs/12).
+
+  aihub-library-index            sync every library in LIBRARIES (run nightly by aihub-library-index.timer)
+  aihub-library-index --dry-run  show what would be uploaded / removed, change nothing
+
+For each library folder (default: /srv/library/work -> "library-work", /srv/library/personal -> "library-personal"):
+build a manifest (path, name, SHA-256, size), ask Open WebUI's sync/diff API what changed, create missing folders,
+upload new and changed files, then remove stale and deleted ones. Collections are created private to the API key's
+owner. Never uploaded: secrets.md, dot-files, anything under an _export/ folder, files over MAX_FILE_MB.
+
+Config: /etc/aihub/library-index.env (root, 600):  OWUI_API_KEY=...  (an Open WebUI API key; required)
+        optional: OWUI_URL (http://127.0.0.1:3000), LIBRARY_DIR (/srv/library), LIBRARIES ("work personal"),
+                  COLLECTION_PREFIX (library-), EXTENSIONS (.md .txt .csv), MAX_FILE_MB (20)
+Result: /var/lib/aihub-mon/library-index.json and one journal line. Exit 1 on any error.
+"""
+import hashlib, json, os, re, signal, sys, time, urllib.error, urllib.request, uuid
+
+ENV_FILE = os.environ.get("LIBRARY_INDEX_ENV", "/etc/aihub/library-index.env")
+CFG = {"OWUI_URL": "http://127.0.0.1:3000", "OWUI_API_KEY": "", "LIBRARY_DIR": "/srv/library",
+       "LIBRARIES": "work personal", "COLLECTION_PREFIX": "library-", "EXTENSIONS": ".md .txt .csv",
+       "MAX_FILE_MB": "20", "STATE_FILE": "/var/lib/aihub-mon/library-index.json"}
+if os.path.exists(ENV_FILE):
+    for ln in open(ENV_FILE):
+        m = re.match(r"^\s*([A-Z_]+)\s*=\s*\"?(.*?)\"?\s*$", ln)
+        if m:
+            CFG[m.group(1)] = m.group(2)
+DRY = "--dry-run" in sys.argv
+NEVER = {"secrets.md"}
+
+
+class ApiError(RuntimeError):
+    pass
+
+
+def api(method, path, body=None, form=None, timeout=600):
+    url = CFG["OWUI_URL"].rstrip("/") + path
+    headers = {"Authorization": f"Bearer {CFG['OWUI_API_KEY']}", "Accept": "application/json"}
+    data = None
+    if form is not None:                                   # multipart upload: form = (filename, bytes)
+        boundary = uuid.uuid4().hex
+        name, content = form
+        data = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{name}\"\r\n"
+                f"Content-Type: text/markdown\r\n\r\n").encode() + content + f"\r\n--{boundary}--\r\n".encode()
+        headers["Content-Type"] = f"multipart/form-data; boundary={boundary}"
+    elif body is not None:
+        data = json.dumps(body).encode()
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            raw = r.read()
+            return json.loads(raw) if raw.strip() else None
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode(errors="replace")[:300]
+        raise ApiError(f"{method} {path}: HTTP {e.code} {detail}") from None
+    except urllib.error.URLError as e:
+        raise ApiError(f"{method} {path}: {e.reason}") from None
+
+
+def manifest(root):
+    exts = set(CFG["EXTENSIONS"].split())
+    limit = float(CFG["MAX_FILE_MB"]) * 1e6
+    out, skipped = [], 0
+    for d, dirs, files in os.walk(root):
+        dirs[:] = sorted(x for x in dirs if not x.startswith(".") and x != "_export")
+        for f in sorted(files):
+            p = os.path.join(d, f)
+            if f in NEVER or f.startswith(".") or os.path.splitext(f)[1].lower() not in exts:
+                skipped += 1
+                continue
+            size = os.path.getsize(p)
+            if size == 0 or size > limit:
+                skipped += 1
+                continue
+            rel = os.path.relpath(d, root).replace(os.sep, "/")
+            out.append({"filename": f, "path": "" if rel == "." else rel,
+                        "checksum": hashlib.sha256(open(p, "rb").read()).hexdigest(), "size": size})
+    return out, skipped
+
+
+def find_or_create(name):
+    res = api("GET", "/api/v1/knowledge/")
+    items = res.get("items", res) if isinstance(res, dict) else res
+    for k in items or []:
+        if k.get("name") == name:
+            return k["id"], False
+    if DRY:
+        return None, True
+    k = api("POST", "/api/v1/knowledge/create",
+            {"name": name, "description": f"AI library: {name} (synced nightly by aihub-library-index)",
+             "access_grants": []})
+    return k["id"], True
+
+
+def sync(side):
+    root = os.path.join(CFG["LIBRARY_DIR"], side)
+    name = CFG["COLLECTION_PREFIX"] + side
+    if not os.path.isdir(root):
+        raise ApiError(f"{root} missing")
+    files, skipped = manifest(root)
+    kid, created = find_or_create(name)
+    if kid is None:                                        # dry run, collection doesn't exist yet
+        return {"collection": name, "would_create": True, "would_add": len(files), "skipped": skipped}
+    diff = api("POST", f"/api/v1/knowledge/{kid}/sync/diff", {"manifest": files})
+    r = {"collection": name, "created": created, "files": len(files), "skipped": skipped,
+         "added": len(diff["added"]), "modified": len(diff["modified"]), "deleted": len(diff["deleted"]),
+         "unchanged": diff["unmodified_count"], "failed": []}
+    if DRY:
+        return r
+    dirs = dict(diff["directory_map"])                     # path -> directory id
+    for path in diff["mkdir"]:                             # parents first (sorted by depth)
+        parent, _, leaf = path.rpartition("/")
+        d = api("POST", f"/api/v1/knowledge/{kid}/dirs/create", {"name": leaf, "parent_id": dirs.get(parent)})
+        dirs[path] = d["id"]
+    stale = [m["stale_file_id"] for m in diff["modified"]]
+    for e in diff["added"] + diff["modified"]:
+        rel = os.path.join(e["path"], e["filename"]) if e["path"] else e["filename"]
+        try:
+            f = api("POST", "/api/v1/files/?process=true&process_in_background=false",
+                    form=(e["filename"], open(os.path.join(root, rel), "rb").read()))
+            if (f.get("data") or {}).get("status") == "failed":
+                raise ApiError((f.get("data") or {}).get("error") or "processing failed")
+            api("POST", f"/api/v1/knowledge/{kid}/file/add", {"file_id": f["id"], "directory_id": dirs.get(e["path"])})
+        except ApiError as err:
+            r["failed"].append(f"{rel}: {err}"[:300])
+    if stale or diff["deleted"] or diff["rmdir"]:
+        api("POST", f"/api/v1/knowledge/{kid}/sync/cleanup",
+            {"file_ids": stale + [d["file_id"] for d in diff["deleted"]], "dir_ids": diff["rmdir"]})
+    return r
+
+
+def on_term(sig, frame):
+    raise SystemExit(f"stopped by signal {sig}")
+
+
+def main():
+    if any(a not in ("--dry-run",) for a in sys.argv[1:]):
+        print(__doc__.strip())
+        return 0 if sys.argv[1] in ("-h", "--help") else 2
+    signal.signal(signal.SIGTERM, on_term)
+    t0, results, errors = time.time(), [], []
+    if not CFG["OWUI_API_KEY"]:
+        errors.append(f"OWUI_API_KEY not set in {ENV_FILE}")
+    else:
+        for side in CFG["LIBRARIES"].split():
+            try:
+                results.append(sync(side))
+            except (ApiError, OSError, KeyError, TypeError) as e:
+                errors.append(f"{side}: {e}"[:300])
+    failed = sum(len(r.get("failed", [])) for r in results)
+    ok = not errors and not failed
+    summary = "; ".join(f"{r['collection']}: " + (f"would add {r['would_add']} (new collection)" if r.get("would_create") else
+                        f"{r['files']} files, +{r['added']} ~{r['modified']} -{r['deleted']}"
+                        + (f", {len(r['failed'])} failed" if r.get("failed") else "")) for r in results)
+    line = f"Library index {'dry run' if DRY else ('OK' if ok else 'FAILED')}: {summary or '-'}" + \
+           (f" | {' | '.join(errors)}" if errors else "") + f" ({round(time.time() - t0)} s)"
+    print(line, file=sys.stdout if ok else sys.stderr)
+    for r in results:
+        for f in r.get("failed", [])[:10]:
+            print(f"  failed: {f}", file=sys.stderr)
+    if not DRY:
+        st = CFG["STATE_FILE"]
+        os.makedirs(os.path.dirname(st), exist_ok=True)
+        with open(st + ".tmp", "w") as fh:
+            json.dump({"ok": ok, "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "epoch": int(time.time()),
+                       "results": results, "errors": errors}, fh, indent=1)
+        os.chmod(st + ".tmp", 0o600)
+        os.replace(st + ".tmp", st)
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
