@@ -71,8 +71,25 @@ sudo tar -xzf "$B/aihub-config.tar.gz" -C ~/restore-test srv/library/work/topics
 
 Converters: `_tools/claude_export_to_md.py` (Claude data export) and `_tools/other_exports_to_md.py` (ChatGPT, Open WebUI). They write to `<library>/_raw/<ai>/`. Set `LIBRARY_ME` to label your own messages (default `Me`).
 
-## 6. Next (not built yet)
+## 6. Local models search it (Open WebUI knowledge)
 
-- Open WebUI knowledge collections `library-work` and `library-personal` ([docs/07](07-knowledge-base.md)), re-indexed nightly, so the local models can search the notes without anything leaving the house.
+[`aihub-library-index`](../host/bin/aihub-library-index) keeps two Open WebUI knowledge collections, `library-work` and `library-personal`, in step with the folders. Run nightly at 03:15 by [`aihub-library-index.timer`](../systemd/aihub-library-index.timer), after the backup. Embeddings use the local `embed` route ([docs/07](07-knowledge-base.md)), so nothing leaves the house.
+
+How a run works: it lists every file in a library with its SHA-256, asks Open WebUI's sync API (`/api/v1/knowledge/{id}/sync/diff`) what changed, creates missing folders, uploads only new and changed files, then removes stale and deleted ones (`/sync/cleanup`). An unchanged library takes a second. Never uploaded: `secrets.md`, dot-files, `_export/` folders, empty files, anything over `MAX_FILE_MB`. Notes and raw transcripts are both indexed (`EXTENSIONS`, default `.md .txt .csv`).
+
+Setup:
+
+1. Open WebUI → **Admin Panel → Settings → General**: Enable API Keys; turn on API Key Endpoint Restrictions with `/api/v1/knowledge,/api/v1/files` (the key can do nothing else).
+2. **Settings → Account → API Keys**: create a key. `setup.sh` created `/etc/aihub/library-index.env` (root, 600) from [`host/library-index.env.example`](../host/library-index.env.example); put the key after `OWUI_API_KEY=`.
+3. `sudo aihub-library-index --dry-run`, then `sudo systemctl start aihub-library-index && journalctl -u aihub-library-index -n 3 -o cat`, then `sudo systemctl enable --now aihub-library-index.timer` (setup.sh enables it on a re-run once the key is set).
+4. **Workspace → Models →** your assistant model **→ Knowledge**: add both collections, or pick one per chat with `#library-work` / `#library-personal`.
+
+The collections are created private to the key's owner. Open WebUI checks the *chatting* user's access when a model has a collection attached, so other users chatting with the same model don't get results from your private notes. With a library this size, raise **Admin Panel → Settings → Documents → Top K** above the default 3.
+
+On this build the first sync took about 3.5 minutes for 431 files (about 8,100 chunks, 4.4 MB) on the main GPU next to the always-loaded chat model. Each embedded chunk also appears as a $0 `embed` row in LiteLLM's spend log. The result of the last run is in `/var/lib/aihub-mon/library-index.json`.
+
+## 7. Next (not built yet)
+
 - Wrap-ups from the local model written straight into the library.
+- Imports of other AIs' exports (ChatGPT, Gemini, Grok, Open WebUI) with `_shared/_tools/`.
 - Optional version history: a local git repo per library on the server (nothing pushed anywhere).

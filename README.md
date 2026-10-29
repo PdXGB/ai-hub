@@ -75,11 +75,12 @@ The two GPUs never share a model. Each service is pinned to one card by UUID; se
 
 ```
 compose/          compose.yaml, .env.example, litellm/config.example.yaml, searxng/settings.example.yml
-systemd/          GPU power limits, ComfyUI (+ gpu.conf drop-in), idle VRAM release, backup, restore drill
-                  and aihub-mon timers, persistenced override, gpu.env.example
+systemd/          GPU power limits, ComfyUI (+ gpu.conf drop-in), idle VRAM release, backup, restore drill,
+                  library index and aihub-mon timers, persistenced override, gpu.env.example
 host/             docker daemon.json, unattended-upgrades NVIDIA blacklist, aihub-mon.env.example,
-                  samba/smb.conf (AI library shares)
-host/bin/         aihub-backup, aihub-gpu-power, aihub-mon, aihub-restore-drill, comfyui-idle-free
+                  samba/smb.conf (AI library shares), library-index.env.example
+host/bin/         aihub-backup, aihub-gpu-power, aihub-library-index, aihub-mon, aihub-restore-drill,
+                  comfyui-idle-free
                   (install to /usr/local/bin)
 home-assistant/   dashboard card, automations/ (aihub-mon alerts), voice prompt template,
                   voice-test/cases.json (fixed requests for the voice regression test)
