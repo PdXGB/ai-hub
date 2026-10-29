@@ -190,6 +190,8 @@ _Chat 09 verified the new `.git` before publishing: 1 commit ("Initial commit", 
 - [ ] **Frigate on the HA GPU:** reads the existing camera NVR streams; the cameras already detect on their own, so the value is searchable review and GenAI summaries via the 27B. ~1.5–2 GB of the 2060; recordings disk to be decided (chat 11)
 - [ ] **Grafana dashboards:** Prometheus + node and GPU exporters for history graphs (good video visuals); overlaps aihub-mon; 3–4 new containers and ports (aihub-mon baseline) (chat 11)
 - [ ] **"How's the server?" voice answer:** one template sensor summarizing aihub-mon, exposed to Assist, in the prompt's fast-changing section (chat 11)
+- [ ] **ChatGPT in the mix:** PdXGB now has a ChatGPT account. Add an OpenAI route to LiteLLM + `ask_model` (needs a separate OpenAI **API** key; a ChatGPT Plus subscription doesn't include API access), fit it under the $50/month cloud cap, update routing rules (docs/06), and run the ChatGPT export through `other_exports_to_md.py` into the library (2026-10-28)
+- [ ] **Drive-home notes → library:** Grok writes a Gmail draft each evening ("<Month D, YYYY> Car Ride Home", markdown body: journaling, venting, project brain dumps). Ingest it, split by subject, file into the library per `_shared/README.md` (tag `· grok`), raw copy in `personal/_raw/grok/`. Decided: n8n + `local-fast` on the server, vents kept full text in a private journal, draft deleted after a verified file, Google Drive journal moves into the library. Design + next-chat prompt: private notes `files/chat-17-drive-notes/` (2026-10-28)
 
 ## Future: repos and chat archive on the server (planned in chat 10; the chat archive became the AI library, chat 15)
 

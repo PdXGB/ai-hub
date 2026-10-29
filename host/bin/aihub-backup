@@ -21,10 +21,31 @@ chmod -R go-rwx "$DEST"
 # keep 7 days
 find /srv/backup -maxdepth 1 -type d -name '20*' -mtime +6 -exec rm -rf {} +
 echo "Backup OK: $DEST ($(du -sh "$DEST" | cut -f1))"
-# off-box copy to NAS (mirrors the 7 local dailies)
-if mountpoint -q /mnt/nas || ls /mnt/nas >/dev/null 2>&1; then
-  rsync -rt --delete --exclude lost+found /srv/backup/ /mnt/nas/aihub/
-  echo "Copied to NAS"
+# off-box copy (mirrors the 7 local dailies) to NAS_BACKUP_DIR from /etc/aihub-mon.env; empty or unset = local only
+ENV_FILE=${AIHUB_MON_ENV:-/etc/aihub-mon.env}
+NAS=""
+[ -r "$ENV_FILE" ] && NAS=$(sed -n 's/^[[:space:]]*NAS_BACKUP_DIR=//p' "$ENV_FILE" | tail -n 1 |
+  sed -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/")
+if [ -z "$NAS" ]; then
+  [ -r "$ENV_FILE" ] && src="NAS_BACKUP_DIR empty or not set in $ENV_FILE" || src="$ENV_FILE missing or unreadable"
+  echo "NAS copy skipped: $src, local backup only"
+  exit 0
+fi
+NAS=${NAS%/}
+why=""
+if ! timeout 20 test -d "$NAS"; then                 # also triggers an automount; timeout guards a hung share
+  why="folder missing or share not responding"
 else
-  echo "WARNING: NAS not reachable, local backup only" >&2
+  mnt=$(timeout 20 findmnt -n -r -o TARGET -T "$NAS" | head -n 1 || true)
+  fs=$(timeout 20 stat -f -c %T "$NAS" || true)
+  dev=$(stat -c %d "$NAS" || true)
+  if [ "$fs" = autofs ] || [ "$dev" = "$(stat -c %d /)" ] || [ "$dev" = "$(stat -c %d /srv/backup)" ]; then
+    why="not on a mounted share (mount ${mnt:-?}, ${fs:-?})"   # never mirror onto the local disks
+  fi
+fi
+if [ -z "$why" ]; then
+  rsync -rt --delete --exclude lost+found /srv/backup/ "$NAS/"
+  echo "Copied to NAS: $NAS (mount $mnt, $fs)"
+else
+  echo "WARNING: NAS not reachable, local backup only: $NAS: $why" >&2
 fi
