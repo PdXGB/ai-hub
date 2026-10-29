@@ -1,0 +1,20 @@
+# 7. An Ollama model doesn't fit in VRAM and is partly running on the CPU (slow replies) for 2 minutes
+alias: AIHub - model spilling to CPU
+triggers:
+  - trigger: state
+    entity_id:
+      - binary_sensor.aihub_ollama_cpu_spill
+      - binary_sensor.aihub_ha_ollama_cpu_spill
+    to: "on"
+    for: "00:02:00"
+actions:
+  - action: notify.mobile_app_your_phone
+    data:
+      title: "AIHub: {{ trigger.to_state.name }}"
+      message: >-
+        A loaded model doesn't fit in VRAM and is running partly on the CPU.
+        {% if trigger.entity_id.endswith('ha_ollama_cpu_spill') %}Voice replies will be slow.
+        {% else %}Loaded: {{ states('sensor.aihub_ollama_loaded') }}{% endif %}
+      data:
+        tag: "aihub-spill-{{ trigger.entity_id }}"
+mode: queued

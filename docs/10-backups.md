@@ -33,7 +33,7 @@ Skipped: the raw Postgres data folders (the dumps replace them) and everything u
 [`aihub-backup.timer`](../systemd/aihub-backup.timer): daily at 02:30, `Persistent=true` (a run missed while the server was off happens at next boot).
 
 - **Local:** keeps 7 days; older dated folders are deleted.
-- **NAS:** `rsync -rt --delete` mirrors `/srv/backup/` to `/mnt/nas/aihub/`, so the NAS also holds the last 7 days. If the share isn't reachable, the run still succeeds locally and logs a warning.
+- **NAS:** `rsync -rt --delete` mirrors `/srv/backup/` to `/mnt/nas/aihub/`, so the NAS also holds the last 7 days. If the share isn't reachable, the run still succeeds locally and logs a warning. With `BACKUP_AGE_RECIPIENT` set, the NAS gets age-encrypted copies instead ([§3a](#3a-encrypting-the-nas-copy)).
 
 ```bash
 sudo systemctl start aihub-backup && journalctl -u aihub-backup -n 5    # "Backup OK: /srv/backup/… (size)" and "Copied to NAS"
@@ -73,6 +73,35 @@ ls /mnt/nas/aihub                                       # triggers the mount
 ```
 
 (The unit names come from the mount path: `/mnt/nas` → `mnt-nas.*`.)
+
+## 3a. Encrypting the NAS copy
+
+Optional. With an [age](https://github.com/FiloSottile/age) public key in `BACKUP_AGE_RECIPIENT` (`/etc/aihub-mon.env`), `aihub-backup` stops using rsync for the NAS and writes each backup file as `<name>.age` at the same path, with the local file's mtime. Only new files are encrypted each night; `.age` files whose local file was pruned, and anything on the NAS that isn't `.age`, are deleted. **The first run removes the existing plaintext copies from the NAS.**
+
+The local copies in `/srv/backup` stay plaintext, so the restore drill and the restores in §4 work unchanged. The point is that the NAS (and anyone with its login) never sees the secrets in clear.
+
+It fails closed: if `age` is missing or the recipient is invalid, nothing is copied, the run exits 1, and after 27 h the NAS age check fires alert 6. A single file that fails to encrypt is logged and the run exits 1.
+
+Setup (generate the key anywhere; the private half must not stay on the server):
+
+```bash
+sudo apt install age
+age-keygen -o ~/aihub-backup.key          # prints "Public key: age1…"
+cat ~/aihub-backup.key                    # copy the whole file into your password manager
+shred -u ~/aihub-backup.key
+echo 'BACKUP_AGE_RECIPIENT=age1…' | sudo tee -a /etc/aihub-mon.env
+sudo systemctl start aihub-backup && journalctl -u aihub-backup -n 3 -o cat   # "Encrypted copy to NAS: … N encrypted, M removed, 0 failed"
+```
+
+Once, and after any key change, prove a copy decrypts. On any machine with the key (not left on the server):
+
+```bash
+age -d -i aihub-backup.key /mnt/nas/aihub/<date>/aihub-config.tar.gz.age | tar -tz | head
+```
+
+Restoring from the NAS is the same as §4 after decrypting each file with `age -d -i <key> -o <file> <file>.age`.
+
+To switch back to plaintext, remove the line: the next run's `rsync --delete` replaces the `.age` files with plain copies.
 
 ## 4. Restore
 
@@ -136,7 +165,7 @@ A difference just means the file changed after that night's backup. On this buil
    | LiteLLM | `LiteLLM_VerificationToken`, `_prisma_migrations` | `LiteLLM_SpendLogs`: between the live rows older than the dump minus 10 minutes and the live rows older than the dump |
 
 3. Lists `aihub-config.tar.gz` (`tar -tzf`, which also checks the gzip stream) and requires `srv/ai/.env`, `srv/ai/compose.yaml`, `etc/aihub/gpu.env`, `etc/fstab`, `usr/local/bin/aihub-mon` and `usr/local/bin/aihub-backup`.
-4. Checks the NAS copy of that night: same three files, same size and SHA-256.
+4. Checks the NAS copy of that night: same three files, same size and SHA-256. With encryption on ([§3a](#3a-encrypting-the-nas-copy)) the key isn't on the server, so it checks for an age file per backup file with the same mtime, and no plaintext copy; it can't check the content. That's what the one-time decrypt test is for.
 
 The scratch containers are always removed, also on failure or `systemctl stop`. The result goes to `/var/lib/aihub-mon/restore-drill.json` and the journal; aihub-mon turns it into the `Restore test` sensors and alert 6 fires if the drill failed or is older than 36 days ([docs/09](09-monitoring.md)).
 

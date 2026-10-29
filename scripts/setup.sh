@@ -403,6 +403,8 @@ elif [ -n "${MQTT_HOST:-}" ]; then
 else NOTES+=("No MQTT broker given: aihub-mon is installed but its timers stay off. Re-run setup.sh with MQTT_HOST set to enable it.")
 fi
 command -v mosquitto_pub >/dev/null || NOTES+=("mosquitto_pub not found: sudo apt install mosquitto-clients (needed by aihub-mon).")
+grep -qs '^[[:space:]]*BACKUP_AGE_RECIPIENT=.' "$ROOT/etc/aihub-mon.env" && ! command -v age >/dev/null &&
+  NOTES+=("BACKUP_AGE_RECIPIENT is set but age is not installed: sudo apt install age (until then the NAS copy is skipped).")
 
 # --------------------------------------------------------------------------- systemd
 hdr "systemd units"

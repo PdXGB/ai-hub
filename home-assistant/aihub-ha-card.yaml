@@ -41,6 +41,9 @@ cards:
           - { condition: state, entity: binary_sensor.aihub_ollama, state: "off" }
           - { condition: state, entity: binary_sensor.aihub_litellm, state: "off" }
           - { condition: state, entity: binary_sensor.aihub_comfyui, state: "off" }
+          - { condition: state, entity: binary_sensor.aihub_searxng, state: "off" }
+          - { condition: state, entity: binary_sensor.aihub_ollama_cpu_spill, state: "on" }
+          - { condition: state, entity: binary_sensor.aihub_ha_ollama_cpu_spill, state: "on" }
           - { condition: state, entity: binary_sensor.aihub_all_containers, state: "off" }
           - { condition: state, entity: binary_sensor.aihub_disks, state: "off" }
           - { condition: state, entity: binary_sensor.aihub_backups, state: "off" }
@@ -50,8 +53,11 @@ cards:
       content: >-
         {% set ns = namespace(p=[]) %}
         {% if not is_state('binary_sensor.aihub_online', 'on') %}{% set ns.p = ns.p + ['Not reporting for 3+ minutes'] %}{% endif %}
-        {% for e, n in [('gpu', 'GPU missing or nvidia-smi failing'), ('ollama', 'Ollama down'), ('litellm', 'LiteLLM down'), ('comfyui', 'ComfyUI down')] %}
+        {% for e, n in [('gpu', 'GPU missing or nvidia-smi failing'), ('ollama', 'Ollama down'), ('litellm', 'LiteLLM down'), ('comfyui', 'ComfyUI down'), ('searxng', 'SearXNG down')] %}
         {% if is_state('binary_sensor.aihub_' ~ e, 'off') %}{% set ns.p = ns.p + [n] %}{% endif %}
+        {% endfor %}
+        {% for e, n in [('ollama_cpu_spill', 'Main Ollama model spilling to CPU'), ('ha_ollama_cpu_spill', 'Voice model spilling to CPU')] %}
+        {% if is_state('binary_sensor.aihub_' ~ e, 'on') %}{% set ns.p = ns.p + [n] %}{% endif %}
         {% endfor %}
         {% for s in states.sensor | selectattr('entity_id', 'search', '^sensor\.aihub_container_') | rejectattr('entity_id', 'search', 'updates') %}
         {% if s.state not in ['running', 'unavailable', 'unknown'] %}{% set ns.p = ns.p + [s.name | replace('AIHub Container ', '') ~ ': ' ~ s.state] %}{% endif %}
@@ -72,6 +78,7 @@ cards:
     icon: mdi:expansion-card
     badges:
       - { type: entity, entity: sensor.aihub_vram_used_gb, icon: mdi:memory, show_state: true }
+      - { type: entity, entity: sensor.aihub_vram_free_gb, name: free, icon: mdi:memory-arrow-down, show_name: true, show_state: true }
       - type: entity
         entity: sensor.aihub_gpu_power
         icon: mdi:flash
@@ -92,6 +99,7 @@ cards:
     icon: mdi:expansion-card
     badges:
       - { type: entity, entity: sensor.aihub_ha_gpu_vram_used_gb, icon: mdi:memory, show_state: true }
+      - { type: entity, entity: sensor.aihub_ha_gpu_vram_free_gb, name: free, icon: mdi:memory-arrow-down, show_name: true, show_state: true }
       - type: entity
         entity: sensor.aihub_ha_gpu_power
         icon: mdi:flash
@@ -110,12 +118,13 @@ cards:
   - type: glance
     show_state: false
     state_color: true
-    columns: 7
+    columns: 8
     entities:
       - { entity: binary_sensor.aihub_gpu, name: GPUs, icon: mdi:expansion-card }
       - { entity: binary_sensor.aihub_ollama, name: Ollama, icon: mdi:robot-outline }
       - { entity: binary_sensor.aihub_litellm, name: LiteLLM, icon: mdi:router-network }
       - { entity: binary_sensor.aihub_comfyui, name: Comfy, icon: mdi:movie-open-play }
+      - { entity: binary_sensor.aihub_searxng, name: Search, icon: mdi:magnify }
       - { entity: binary_sensor.aihub_all_containers, name: Stack, icon: mdi:docker }
       - { entity: binary_sensor.aihub_disks, name: Disks, icon: mdi:harddisk }
       - { entity: binary_sensor.aihub_backups, name: Backups, icon: mdi:backup-restore }

@@ -9,9 +9,9 @@ Why MQTT discovery rather than HA's REST API or Glances: the entities persist an
 | Area | Entities (`sensor.aihub_*`, `binary_sensor.aihub_*`) |
 |---|---|
 | System | CPU load and temperature, RAM, root disk, last boot, reboot required |
-| GPUs | Main card: temperature, utilization, VRAM, power. HA card: the same as "HA GPU …". `GPU` is off if fewer cards answer than `lspci` sees ([docs/04](04-multi-gpu.md#6-monitoring-two-cards)) |
-| Services | ComfyUI unit active, LiteLLM `/health/liveliness`, Ollama reachable, every container in the `ai` compose project (one sensor each, plus "All containers") |
-| AI | Models loaded in Ollama (with % on GPU), cloud spend over 30 days per route and as % of the budget (from `LiteLLM_SpendLogs`) |
+| GPUs | Main card: temperature, utilization, VRAM used and free, power. HA card: the same as "HA GPU …". `GPU` is off if fewer cards answer than `lspci` sees ([docs/04](04-multi-gpu.md#6-monitoring-two-cards)) |
+| Services | ComfyUI unit active, LiteLLM `/health/liveliness`, Ollama reachable, SearXNG `/healthz`, every container in the `ai` compose project (one sensor each, plus "All containers") |
+| AI | Models loaded in Ollama (with % on GPU), `Ollama CPU spill` / `HA Ollama CPU spill` on when a loaded model doesn't fit in VRAM (unknown, not off, when that Ollama is unreachable), cloud spend over 30 days per route and as % of the budget (from `LiteLLM_SpendLogs`) |
 | Disks | Fullest of `/`, `/srv/models/ollama`, `/srv/models/comfyui`, `/srv/backup`; `Disks` off at 85% |
 | Backups | Age of the newest local backup (max 26 h) and NAS copy (max 27 h); `Backups` off if either is missing or stale ([docs/10](10-backups.md)) |
 | Restore test | Result of the monthly restore drill: `Restore test` off if the last drill failed, never ran, or is older than 36 days; `Restore test age` in days, with the row counts as attributes ([docs/10](10-backups.md#restore-drill-monthly)) |
@@ -94,4 +94,6 @@ Anyone with the broker credentials can press a button, so automation 5 notifies 
 | 3 | Container down | "All containers" off for 5 min; lists which |
 | 4 | GPU problem | `GPU` off for 3 min (driver/library mismatch, a card off the bus) |
 | 5 | Alerts acknowledged | Every acknowledgement |
-| 6 | Service, disk or backup | ComfyUI, LiteLLM, Disks, Backups or Restore test off for 10 min |
+| 6 | Service, disk or backup | ComfyUI, LiteLLM, SearXNG, Disks, Backups or Restore test off for 10 min |
+| 7 | Model spilling to CPU | Either `CPU spill` sensor on for 2 min |
+| 8 | GPU hot | Either GPU above 82 °C for 2 min (works whether HA shows °C or °F) |

@@ -1,0 +1,24 @@
+# 8. A GPU above 82 °C for 2 minutes. aihub-mon reports °C; HA converts to °F on an imperial install,
+#    so the template converts back to °C and the threshold is right either way.
+alias: AIHub - GPU hot
+triggers:
+  - trigger: numeric_state
+    entity_id:
+      - sensor.aihub_gpu_temperature
+      - sensor.aihub_ha_gpu_temperature
+    value_template: >-
+      {% set t = state.state | float(0) %}
+      {{ (t - 32) * 5 / 9 if state.attributes.unit_of_measurement == '°F' else t }}
+    above: 82
+    for: "00:02:00"
+actions:
+  - action: notify.mobile_app_your_phone
+    data:
+      title: "AIHub GPU hot"
+      message: >-
+        {{ trigger.to_state.name }} is {{ trigger.to_state.state }}{{ trigger.to_state.attributes.unit_of_measurement }}.
+        Check fans and airflow; nvidia-smi shows clocks and power.
+      data:
+        tag: "aihub-hot-{{ trigger.entity_id }}"
+        priority: high
+mode: queued

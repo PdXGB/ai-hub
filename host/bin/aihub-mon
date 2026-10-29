@@ -28,6 +28,8 @@ CFG = {
     "SSH_FAIL_ALERT": "10",          # failed SSH attempts in 24 h before alerting
     "CLOUD_BUDGET": "50",
     "OLLAMA_URL": "http://127.0.0.1:11434",
+    "OLLAMA_HA_URL": "http://127.0.0.1:11435",   # ollama-ha (voice model); empty = skip its spill check
+    "SEARXNG_URL": "http://127.0.0.1:8888",      # empty = skip
     "LITELLM_URL": "http://127.0.0.1:4000",
     "GPU_MAIN_UUID": "",             # optional; default = card with the most VRAM
     "GPU_HA_UUID": "",               # optional; default = next card
@@ -126,6 +128,7 @@ def gpus():
         if c["mem_used"] is not None and c["mem_total"]:
             d[f"vram_{prefix}used_gb"] = num(c["mem_used"] / 1024)
             d[f"vram_{prefix}used_pct"] = num(100 * c["mem_used"] / c["mem_total"], 0)
+            d[f"vram_{prefix}free_gb"] = num((c["mem_total"] - c["mem_used"]) / 1024)
     want = expected_gpus()
     d["gpu_count"] = len(cards)
     d["gpu_ok"] = "ON" if cards and len(cards) >= want else "OFF"   # OFF: nvidia-smi failing, or a card missing
@@ -154,6 +157,12 @@ def health():
         d["litellm_ok"] = "ON"
     except Exception:
         d["litellm_ok"] = "OFF"
+    if CFG["SEARXNG_URL"].strip():
+        try:
+            urllib.request.urlopen(CFG["SEARXNG_URL"].rstrip("/") + "/healthz", timeout=5)
+            d["searxng_ok"] = "ON"
+        except Exception:
+            d["searxng_ok"] = "OFF"
 
     mounts, worst = {}, None
     for m in CFG["DISK_MOUNTS"].split():
@@ -241,11 +250,22 @@ def containers():
 
 
 # ---------------------------------------------------------------- AI status
+def ollama_ps(url):
+    """Loaded models from an Ollama /api/ps; raises if unreachable."""
+    return json.load(urllib.request.urlopen(url.rstrip("/") + "/api/ps", timeout=5)).get("models", [])
+
+
+def spilling(models):
+    """ON if any loaded model is partly in system RAM (size_vram < size): it runs on the CPU and gets slow."""
+    return "ON" if any(m.get("size_vram", 0) < m.get("size", 0) for m in models) else "OFF"
+
+
 def ai():
     d = {"ollama_models": [], "ollama_loaded": "none"}
     try:
-        ps = json.load(urllib.request.urlopen(CFG["OLLAMA_URL"] + "/api/ps", timeout=5))
-        for m in ps.get("models", []):
+        models = ollama_ps(CFG["OLLAMA_URL"])
+        d["ollama_spill"] = spilling(models)
+        for m in models:
             size, vram = m.get("size", 0), m.get("size_vram", 0)
             gpu = round(100 * vram / size) if size else 0
             d["ollama_models"].append({"name": m["name"], "gpu_pct": gpu,
@@ -254,7 +274,12 @@ def ai():
             d["ollama_loaded"] = ", ".join(f'{m["name"].split("/")[-1]} ({m["gpu_pct"]}% GPU)' for m in d["ollama_models"])
         d["ollama_ok"] = "ON"
     except Exception:
-        d["ollama_ok"] = "OFF"
+        d["ollama_ok"] = "OFF"          # spill stays unknown: "down" must never read as "no spill"
+    if CFG["OLLAMA_HA_URL"].strip():
+        try:
+            d["ollama_ha_spill"] = spilling(ollama_ps(CFG["OLLAMA_HA_URL"]))
+        except Exception:
+            pass                        # unknown; ollama-ha being down shows on its container sensor
 
     q = ("SELECT COALESCE(model_group, model, '?'), ROUND(SUM(spend)::numeric, 4) FROM \"LiteLLM_SpendLogs\" "
          "WHERE \"startTime\" > now() - interval '30 days' GROUP BY 1 ORDER BY 2 DESC")
@@ -426,11 +451,13 @@ ENTITIES = [
     (S, "gpu_util", "GPU utilization", "%", None, "measurement", "mdi:expansion-card", {}),
     (S, "vram_used_pct", "VRAM used", "%", None, "measurement", "mdi:memory", {}),
     (S, "vram_used_gb", "VRAM used GB", "GB", "data_size", "measurement", None, {}),
+    (S, "vram_free_gb", "VRAM free GB", "GB", "data_size", "measurement", None, {}),
     (S, "gpu_power", "GPU power", "W", "power", "measurement", None, {}),
     (S, "gpu_ha_temp", "HA GPU temperature", "°C", "temperature", "measurement", None, {}),
     (S, "gpu_ha_util", "HA GPU utilization", "%", None, "measurement", "mdi:expansion-card", {}),
     (S, "vram_ha_used_pct", "HA GPU VRAM used", "%", None, "measurement", "mdi:memory", {}),
     (S, "vram_ha_used_gb", "HA GPU VRAM used GB", "GB", "data_size", "measurement", None, {}),
+    (S, "vram_ha_free_gb", "HA GPU VRAM free GB", "GB", "data_size", "measurement", None, {}),
     (S, "gpu_ha_power", "HA GPU power", "W", "power", "measurement", None, {}),
     (S, "gpu_count", "GPUs detected", None, None, "measurement", "mdi:expansion-card-variant", {"attr": "gpus"}),
     (S, "disk_max_used_pct", "Fullest disk", "%", None, "measurement", "mdi:harddisk", {"attr": "disk_mounts"}),
@@ -455,6 +482,9 @@ ENTITIES = [
     (B, "backups_ok", "Backups", None, None, None, "mdi:backup-restore", {"attr": "backup_problems"}),
     (B, "restore_test_ok", "Restore test", None, None, None, "mdi:database-check", {"attr": "restore_test_problems"}),
     (B, "ollama_ok", "Ollama", None, "running", None, None, {}),
+    (B, "ollama_spill", "Ollama CPU spill", None, "problem", None, None, {}),
+    (B, "ollama_ha_spill", "HA Ollama CPU spill", None, "problem", None, None, {}),
+    (B, "searxng_ok", "SearXNG", None, "running", None, None, {}),
     (B, "containers_ok", "All containers", None, "running", None, None, {}),
     (B, "reboot_required", "Reboot required", None, "update", None, None, {}),
     (B, "security_problem", "Security", None, "safety", None, None, {}),

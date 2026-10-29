@@ -1,10 +1,11 @@
-# 6. ComfyUI / LiteLLM / disks / backups / restore drill problem for 10 minutes
+# 6. ComfyUI / LiteLLM / SearXNG / disks / backups / restore drill problem for 10 minutes
 alias: AIHub - service, disk or backup problem
 triggers:
   - trigger: state
     entity_id:
       - binary_sensor.aihub_comfyui
       - binary_sensor.aihub_litellm
+      - binary_sensor.aihub_searxng
       - binary_sensor.aihub_disks
       - binary_sensor.aihub_backups
       - binary_sensor.aihub_restore_test

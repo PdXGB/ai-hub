@@ -8,18 +8,19 @@ Steps, all read-only for the live stack:
   2. gzip -t both dumps; restore each into a scratch postgres:17 (no network, no ports, data dir on tmpfs,
      psql ON_ERROR_STOP=1); compare key row counts with the live databases
   3. tar -tzf the config archive; required members present
-  4. the NAS copy of that night has the same files (size + sha256)
+  4. the NAS copy of that night has the same files (size + sha256); with BACKUP_AGE_RECIPIENT set, an age file
+     per backup file with the same mtime, and no plaintext copy (the key is off the box, so no content check)
 The scratch containers are always removed. aihub-mon exempts them from its rogue-container tripwire only
 while this process is alive (name, label = this PID, image, no ports, no network, no volume).
 
-Config: /etc/aihub-mon.env (BACKUP_DIR, BACKUP_MAX_AGE_H, NAS_BACKUP_DIR, COMPOSE_DIR, RESTORE_STATE)
+Config: /etc/aihub-mon.env (BACKUP_DIR, BACKUP_MAX_AGE_H, NAS_BACKUP_DIR, BACKUP_AGE_RECIPIENT, COMPOSE_DIR, RESTORE_STATE)
 Result: RESTORE_STATE (default /var/lib/aihub-mon/restore-drill.json) and one journal line.
 """
 import glob, gzip, hashlib, json, os, re, signal, subprocess, sys, time
 
 ENV_FILE = os.environ.get("AIHUB_MON_ENV", "/etc/aihub-mon.env")
 CFG = {"BACKUP_DIR": "/srv/backup", "BACKUP_MAX_AGE_H": "26", "NAS_BACKUP_DIR": "/mnt/nas/aihub",
-       "COMPOSE_DIR": "/srv/ai", "RESTORE_STATE": "/var/lib/aihub-mon/restore-drill.json"}
+       "BACKUP_AGE_RECIPIENT": "", "COMPOSE_DIR": "/srv/ai", "RESTORE_STATE": "/var/lib/aihub-mon/restore-drill.json"}
 if os.path.exists(ENV_FILE):
     for ln in open(ENV_FILE):
         m = re.match(r"^\s*([A-Z_]+)\s*=\s*\"?(.*?)\"?\s*$", ln)
@@ -30,6 +31,7 @@ IMAGE = "postgres:17"            # same major version as the live databases
 NAME = f"aihub-restore-drill-{{db}}-{os.getpid()}"
 LABEL = f"aihub.restore-drill={os.getpid()}"
 FILES = ("n8n-db.sql.gz", "litellm-db.sql.gz", "aihub-config.tar.gz")
+AGE_HEADER = b"age-encryption.org/v1\n"
 REQUIRED = ("srv/ai/.env", "srv/ai/compose.yaml", "etc/aihub/gpu.env", "etc/fstab",
             "usr/local/bin/aihub-mon", "usr/local/bin/aihub-backup")
 # database: compose service, user = database name, {table: rule}. "equal" = same as live now;
@@ -182,11 +184,24 @@ def check_nas(b):
         details["nas"] = "missing"
         return
     bad = []
+    encrypted = bool(CFG["BACKUP_AGE_RECIPIENT"].strip())
     for fn in FILES:
-        a, n = os.path.join(b, fn), os.path.join(copy, fn)
-        if not os.path.exists(n) or os.path.getsize(a) != os.path.getsize(n) or sha256(a) != sha256(n):
+        a = os.path.join(b, fn)
+        if encrypted:   # the key is off the box, so: an age file with the same mtime as the local one
+            n = os.path.join(copy, fn + ".age")
+            try:
+                with open(n, "rb") as f:
+                    ok = f.read(22) == AGE_HEADER and int(os.path.getmtime(n)) == int(os.path.getmtime(a))
+            except OSError:
+                ok = False
+        else:
+            n = os.path.join(copy, fn)
+            ok = os.path.exists(n) and os.path.getsize(a) == os.path.getsize(n) and sha256(a) == sha256(n)
+        if not ok:
             bad.append(fn)
-    details["nas"] = "match" if not bad else "differs: " + ", ".join(bad)
+        if encrypted and os.path.exists(os.path.join(copy, fn)):
+            bad.append(fn + " (plaintext on NAS)")
+    details["nas"] = ("match" + (" (encrypted)" if encrypted else "")) if not bad else "differs: " + ", ".join(bad)
     if bad:
         problems.append("NAS copy differs: " + ", ".join(bad))
 

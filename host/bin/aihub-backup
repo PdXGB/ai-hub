@@ -23,9 +23,13 @@ find /srv/backup -maxdepth 1 -type d -name '20*' -mtime +6 -exec rm -rf {} +
 echo "Backup OK: $DEST ($(du -sh "$DEST" | cut -f1))"
 # off-box copy (mirrors the 7 local dailies) to NAS_BACKUP_DIR from /etc/aihub-mon.env; empty or unset = local only
 ENV_FILE=${AIHUB_MON_ENV:-/etc/aihub-mon.env}
-NAS=""
-[ -r "$ENV_FILE" ] && NAS=$(sed -n 's/^[[:space:]]*NAS_BACKUP_DIR=//p' "$ENV_FILE" | tail -n 1 |
-  sed -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/")
+envval() {   # last NAME=value in ENV_FILE, quotes stripped; empty if unset or unreadable
+  [ -r "$ENV_FILE" ] || return 0
+  sed -n "s/^[[:space:]]*$1=//p" "$ENV_FILE" | tail -n 1 |
+    sed -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/"
+}
+NAS=$(envval NAS_BACKUP_DIR)
+AGE_RCPT=$(envval BACKUP_AGE_RECIPIENT)   # set = the NAS gets only age-encrypted copies; local stays plaintext
 if [ -z "$NAS" ]; then
   [ -r "$ENV_FILE" ] && src="NAS_BACKUP_DIR empty or not set in $ENV_FILE" || src="$ENV_FILE missing or unreadable"
   echo "NAS copy skipped: $src, local backup only"
@@ -43,9 +47,46 @@ else
     why="not on a mounted share (mount ${mnt:-?}, ${fs:-?})"   # never mirror onto the local disks
   fi
 fi
-if [ -z "$why" ]; then
+if [ -n "$why" ]; then
+  echo "WARNING: NAS not reachable, local backup only: $NAS: $why" >&2
+  exit 0
+fi
+if [ -z "$AGE_RCPT" ]; then
   rsync -rt --delete --exclude lost+found /srv/backup/ "$NAS/"
   echo "Copied to NAS: $NAS (mount $mnt, $fs)"
-else
-  echo "WARNING: NAS not reachable, local backup only: $NAS: $why" >&2
+  exit 0
 fi
+
+# Encrypted mirror: each local file becomes <name>.age on the NAS (same relative path, same mtime).
+# Fails closed: without a working age + recipient nothing is copied, so the NAS copy goes stale and alert 6 fires.
+if ! command -v age >/dev/null 2>&1; then
+  echo "WARNING: BACKUP_AGE_RECIPIENT is set but age is not installed (apt install age); NAS copy skipped" >&2
+  exit 1
+fi
+if ! age -r "$AGE_RCPT" </dev/null >/dev/null 2>&1; then
+  echo "WARNING: BACKUP_AGE_RECIPIENT is not a valid age recipient; NAS copy skipped" >&2
+  exit 1
+fi
+enc=0 failed=0 removed=0
+while IFS= read -r -d '' f; do
+  rel=${f#/srv/backup/}
+  t="$NAS/$rel.age"
+  # backup files don't change once written: encrypt only new or newer ones (whole seconds; CIFS rounds mtimes)
+  if [ -f "$t" ] && [ "$(stat -c %Y "$f")" -le "$(stat -c %Y "$t")" ]; then continue; fi
+  mkdir -p "$(dirname "$t")"
+  if age -r "$AGE_RCPT" -o "$t.tmp" "$f" && mv -f "$t.tmp" "$t" && touch -r "$f" "$t"; then
+    enc=$((enc + 1))
+  else
+    rm -f "$t.tmp"; failed=$((failed + 1))
+    echo "WARNING: age encryption failed, not on the NAS: $rel" >&2
+  fi
+done < <(find /srv/backup -type f -not -path '/srv/backup/lost+found/*' -print0)
+# mirror deletions: .age files whose local file is gone, and anything not .age (plaintext from before encryption)
+while IFS= read -r -d '' t; do
+  rel=${t#"$NAS"/}
+  if [[ $t == *.age ]] && [ -e "/srv/backup/${rel%.age}" ]; then continue; fi
+  rm -f "$t" && removed=$((removed + 1))
+done < <(find "$NAS" -type f -not -path "$NAS/lost+found/*" -print0)
+find "$NAS" -mindepth 1 -depth -type d -empty -not -name lost+found -delete
+echo "Encrypted copy to NAS: $NAS (mount $mnt, $fs): $enc encrypted, $removed removed, $failed failed"
+[ "$failed" -eq 0 ]
