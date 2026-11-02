@@ -65,6 +65,7 @@ services:
       OPENAI_API_KEY: ${LITELLM_MASTER_KEY}
       ENABLE_OLLAMA_API: "false"
       WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY}
+    networks: [default, ssh]   # ssh: reaches aihub-ssh (Remote Shell tool, docs/13)
 
   n8n-db:
     image: postgres:17
@@ -150,3 +151,26 @@ services:
     restart: unless-stopped
     ports: ["127.0.0.1:8888:8080"]
     volumes: ["./searxng:/etc/searxng"]
+
+  # Remote Shell (docs/13): ssh/scp to enrolled LAN hosts for the Open WebUI tool. Built locally, no published
+  # port; only Open WebUI shares its network. Every call is confirmed in Open WebUI and logged to ssh/audit.log.
+  aihub-ssh:
+    build:
+      context: ./ssh-runner
+      args: {UID: "${AIHUB_UID:-1000}", GID: "${AIHUB_GID:-1000}"}
+    image: aihub-ssh:local
+    restart: unless-stopped
+    networks: [ssh, ssh-egress]
+    volumes: ["./ssh:/ssh", "/srv/transfer:/transfer"]
+    environment:
+      AIHUB_SSH_TOKEN: ${AIHUB_SSH_TOKEN}
+      TZ: ${TZ}
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+networks:
+  ssh:
+    internal: true   # Open WebUI <-> aihub-ssh only
+  ssh-egress: {}     # aihub-ssh's way out to the LAN

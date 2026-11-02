@@ -21,6 +21,8 @@ BACKUP_ROOT=/srv/backup/pre-update     # backup drive; aihub-backup mirrors it t
 KEEP_BACKUPS=${KEEP_BACKUPS:-3}         # pre-update backups kept per service
 # --all order: lowest risk first, the chat stack last. Services not listed run after these.
 ORDER=(searxng piper whisper cloudflared litellm-db n8n-db ollama ollama-ha litellm n8n open-webui)
+# Built locally, no registry image to pin; monthly-update.sh rebuilds them (docker compose build --pull).
+SKIP=(aihub-ssh)
 cd "$STACK"
 
 die()  { echo "ERROR: $*" >&2; exit 1; }
@@ -168,8 +170,8 @@ rollback() {  # rollback <svc> [noprompt]
   health "$svc"
 }
 
-ordered_services() {  # ORDER first, then anything else in compose
-  local all; all=$(services)
+ordered_services() {  # ORDER first, then anything else in compose (minus SKIP)
+  local all; all=$(services | grep -vxF -f <(printf '%s\n' "${SKIP[@]}"))
   for s in "${ORDER[@]}"; do grep -qx "$s" <<<"$all" && echo "$s"; done
   for s in $all; do printf '%s\n' "${ORDER[@]}" | grep -qx "$s" || echo "$s"; done
 }
@@ -231,6 +233,7 @@ esac
 
 SVC=$1; ARG=${2:-}
 services | grep -qx "$SVC" || die "no service named '$SVC'"
+printf '%s\n' "${SKIP[@]}" | grep -qx "$SVC" && die "'$SVC' is built locally: docker compose build --pull $SVC && docker compose up -d $SVC"
 
 if [[ $ARG == --rollback ]]; then rollback "$SVC"; exit 0; fi
 

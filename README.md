@@ -24,6 +24,7 @@ High-tech redneck: Star Trek meets Mayberry. Everything here comes from the real
 | ComfyUI (native, systemd) | Image and video generation | Main |
 | aihub-mon (systemd) | Health, update and security reporting to Home Assistant over MQTT | — |
 | Samba (native, LAN only) | Shares the AI library: notes from every AI chat, sorted by topic ([docs/12](docs/12-library.md)) | — |
+| aihub-ssh + Remote Shell tool | SSH/scp to enrolled LAN machines from chat; every command confirmed first ([docs/13](docs/13-remote-shell.md)) | — |
 
 Home Assistant voice reaches its model through LiteLLM's `local-ha` route, so it shares the gateway's keys, budgets and logs; see [docs/05](docs/05-home-assistant.md).
 
@@ -79,15 +80,16 @@ systemd/          GPU power limits, ComfyUI (+ gpu.conf drop-in), idle VRAM rele
                   library index and aihub-mon timers, persistenced override, gpu.env.example
 host/             docker daemon.json, unattended-upgrades NVIDIA blacklist, aihub-mon.env.example,
                   samba/smb.conf (AI library shares), library-index.env.example
-host/bin/         aihub-backup, aihub-gpu-power, aihub-library-index, aihub-mon, aihub-restore-drill,
-                  comfyui-idle-free
+host/bin/         aihub-backup, aihub-enroll, aihub-gpu-power, aihub-library-index, aihub-mon,
+                  aihub-restore-drill, comfyui-idle-free
                   (install to /usr/local/bin)
 home-assistant/   dashboard card, automations/ (aihub-mon alerts), voice prompt template,
                   voice-test/cases.json (fixed requests for the voice regression test)
 library/_shared/  AI library skeleton: rules, topic template, prompts, export converters
-open-webui/       ask_model tool, assistant system prompt template
+open-webui/       ask_model and remote_shell tools, assistant system prompt template
+ssh-runner/       aihub-ssh sidecar (Dockerfile + app.py) for the Remote Shell tool
 scripts/          setup.sh, scrub.sh, update-image.sh, monthly-update.sh, aihub-gpu-audit.sh, gpu-burn.py,
-                  voice-test.py (HA voice regression test, docs/05 §9)
+                  voice-test.py (HA voice regression test, docs/05 §9), install-aichat.sh (terminal agent)
 docs/             step-by-step build notes
 ```
 
@@ -131,6 +133,7 @@ Secrets live only in `/srv/ai/.env` (mode 600), outside the clone. `compose/.env
 10. [Backups and the monthly restore drill](docs/10-backups.md)
 11. [Updates](docs/11-updates.md)
 12. [AI library: every chat, sorted by topic](docs/12-library.md)
+13. [Remote Shell: SSH and file copy to LAN machines](docs/13-remote-shell.md)
 
 [Troubleshooting](docs/troubleshooting.md)
 

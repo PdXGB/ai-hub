@@ -12,12 +12,14 @@
 #                         litellm/config.yaml (budgets), searxng/settings.yml (key),
 #                         update-image.sh, monthly-update.sh,
 #                         voice-test/ (HA voice regression test, docs/05 §9)
+#                         ssh-runner/ + ssh/ (Remote Shell: sidecar build, its key and inventory, docs/13)
 #                         (/srv/ai is owned by the sudo user; .env stays mode 600)
 #   /srv/models, /srv/data, /srv/backup   data directories, /srv/backup/pre-update
+#   /srv/transfer         Remote Shell staging folder for scp (docs/13)
 #   /srv/library          AI library skeleton: _shared/ (rules, templates, prompts, tools), work/, personal/ (docs/12)
 #   /etc/aihub/gpu.env    GPU UUIDs + a power limit per card for the systemd units
-#   /usr/local/bin        aihub-backup, aihub-gpu-power, aihub-library-index, aihub-mon, aihub-restore-drill,
-#                         comfyui-idle-free
+#   /usr/local/bin        aihub-backup, aihub-enroll, aihub-gpu-power, aihub-library-index, aihub-mon,
+#                         aihub-restore-drill, comfyui-idle-free
 #   /etc/...              docker daemon.json (log rotation merged into an existing one),
 #                         unattended-upgrades NVIDIA blacklist,
 #                         aihub-mon.env, MQTT login for aihub-mon (optional)
@@ -198,16 +200,22 @@ CLOUD_BUDGET=${CLOUD_BUDGET:-50}
 
 # --------------------------------------------------------------------------- /srv/ai
 hdr "Writing /srv/ai"
-install -d -m 755 "$AI" "$AI/litellm" "$AI/searxng" "$AI/voice-test"
+install -d -m 755 "$AI" "$AI/litellm" "$AI/searxng" "$AI/voice-test" "$AI/ssh-runner"
 place "$REPO/compose/compose.yaml" "$AI/compose.yaml" || true
 place "$REPO/scripts/update-image.sh"  "$AI/update-image.sh" 755 || true
 place "$REPO/scripts/monthly-update.sh" "$AI/monthly-update.sh" 755 || true
 place "$REPO/scripts/voice-test.py" "$AI/voice-test/voice-test.py" 755 || true
 place "$REPO/home-assistant/voice-test/cases.json" "$AI/voice-test/cases.json" || true
 place "$REPO/home-assistant/extended-openai-prompt-template.txt" "$AI/voice-test/extended-openai-prompt-template.txt" || true
+place "$REPO/ssh-runner/app.py" "$AI/ssh-runner/app.py" || true
+place "$REPO/ssh-runner/Dockerfile" "$AI/ssh-runner/Dockerfile" || true
 
 # .env: generated secrets + answers; fill gaps only
-GEN_VARS="LITELLM_MASTER_KEY LITELLM_SALT_KEY LITELLM_DB_PASSWORD WEBUI_SECRET_KEY N8N_ENCRYPTION_KEY N8N_DB_PASSWORD"
+GEN_VARS="LITELLM_MASTER_KEY LITELLM_SALT_KEY LITELLM_DB_PASSWORD WEBUI_SECRET_KEY N8N_ENCRYPTION_KEY N8N_DB_PASSWORD AIHUB_SSH_TOKEN"
+if [ "$RUN_USER" != root ] && id -u "$RUN_USER" >/dev/null 2>&1; then   # aihub-ssh runs as the owner of /srv/ai/ssh
+  need AIHUB_UID && AIHUB_UID=$(id -u "$RUN_USER")
+  need AIHUB_GID && AIHUB_GID=$(id -g "$RUN_USER")
+fi
 for v in $GEN_VARS; do
   if need "$v" && [ -z "${!v:-}" ]; then
     case $v in LITELLM_MASTER_KEY|LITELLM_SALT_KEY) printf -v "$v" 'sk-%s' "$(gen 24)" ;; *) printf -v "$v" '%s' "$(gen 24)" ;; esac
@@ -269,6 +277,15 @@ if [ ! -e "$AI/searxng/settings.yml" ]; then
   place_text "$AI/searxng/settings.yml" 644 < <(sed "s/GENERATED_BY_SETUP/$(gen 32)/" "$REPO/compose/searxng/settings.example.yml") || true
 else KEPT+=("$AI/searxng/settings.yml"); fi
 
+# Remote Shell (docs/13): the sidecar's own key, inventory and pinned host keys; hosts are added with aihub-enroll
+if [ ! -e "$AI/ssh/id_ed25519" ]; then
+  install -d -m 700 "$AI/ssh"
+  ssh-keygen -q -t ed25519 -N '' -C "aihub-webui@$(hostname)" -f "$AI/ssh/id_ed25519"
+  CREATED+=("$AI/ssh/id_ed25519 (Remote Shell key; public half goes on each host via aihub-enroll)")
+else KEPT+=("$AI/ssh/id_ed25519"); fi
+for f in hosts.conf known_hosts audit.log; do [ -e "$AI/ssh/$f" ] || { install -m 644 /dev/null "$AI/ssh/$f"; CREATED+=("$AI/ssh/$f"); }; done
+chmod 600 "$AI/ssh/audit.log"
+
 # /srv/ai belongs to the user who runs docker compose and the update scripts
 if [ "$RUN_USER" != root ] && id -u "$RUN_USER" >/dev/null 2>&1; then
   chown -R "$RUN_USER": "$AI"; say "  /srv/ai owned by $RUN_USER"
@@ -282,6 +299,11 @@ for d in srv/models/ollama srv/models/ollama-ha srv/models/comfyui srv/data/lite
 done
 if [ ! -d "$ROOT/srv/data/n8n" ]; then
   install -d -m 700 -o 1000 -g 1000 "$ROOT/srv/data/n8n"; CREATED+=("$ROOT/srv/data/n8n/ (owner uid 1000 for n8n)")
+fi
+if [ ! -d "$ROOT/srv/transfer" ]; then   # Remote Shell scp staging (docs/13); aihub-ssh runs as the user
+  install -d -m 750 "$ROOT/srv/transfer"
+  if [ "$RUN_USER" != root ] && id -u "$RUN_USER" >/dev/null 2>&1; then chown "$RUN_USER": "$ROOT/srv/transfer"; fi
+  CREATED+=("$ROOT/srv/transfer/ (owner $RUN_USER, Remote Shell staging)")
 fi
 if [ ! -d "$ROOT/srv/backup/pre-update" ]; then   # update-image.sh backups; it runs as the user
   install -d -m 700 "$ROOT/srv/backup/pre-update"
@@ -347,7 +369,7 @@ for k in GPU_MAIN_POWER_LIMIT GPU_HA_POWER_LIMIT; do
   [ -n "$(envval "$k" "$GPUENV")" ] || NOTES+=("$k is empty in /etc/aihub/gpu.env: the $r GPU stays at its stock power limit.")
 done
 
-for b in aihub-backup aihub-gpu-power aihub-library-index aihub-mon aihub-restore-drill comfyui-idle-free; do place "$REPO/host/bin/$b" "$ROOT/usr/local/bin/$b" 755 || true; done
+for b in aihub-backup aihub-enroll aihub-gpu-power aihub-library-index aihub-mon aihub-restore-drill comfyui-idle-free; do place "$REPO/host/bin/$b" "$ROOT/usr/local/bin/$b" 755 || true; done
 # daemon.json: nvidia-ctk usually creates it first, so add the log keys to it if they're missing
 DJ="$ROOT/etc/docker/daemon.json"
 if [ ! -e "$DJ" ]; then
@@ -454,5 +476,6 @@ Next steps
   docker exec ai-ollama-1 ollama pull nomic-embed-text                    # embed
   docker exec ai-ollama-ha-1 ollama pull qwen3:8b                         # local-ha
   Then: LiteLLM virtual keys (docs/03), Home Assistant (docs/05), GPU checks (docs/04).
+  Remote Shell (optional): paste open-webui/remote_shell.py, enroll hosts with aihub-enroll (docs/13).
 Secrets are in /srv/ai/.env (mode 600). Back it up; the n8n key can't be recovered.
 EOF

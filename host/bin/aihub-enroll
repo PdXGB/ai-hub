@@ -1,0 +1,152 @@
+#!/bin/bash
+# aihub-enroll: add a LAN host to the Remote Shell inventory (docs/13-remote-shell.md).
+# Run on the server as your own user (not root). Two keys go on the target, one line each:
+#   aihub-webui    the aihub-ssh sidecar (Open WebUI "Remote Shell" tool)   $SSH_DIR/id_ed25519
+#   aihub-terminal your terminal agent (aichat) and plain ssh on the server  ~/.ssh/aihub-terminal
+#
+#   aihub-enroll ALIAS ADDRESS [--admin USER] [--port N] [--user aihub] [--manual]
+#       Linux box / Pi / Proxmox: logs in as USER (you with sudo, or root; password prompts are fine), creates the
+#       `aihub` user (key-only), installs both keys, asks yes/no for passwordless sudo on that host,
+#       then pins its host key and adds ALIAS to the inventory.
+#       --manual: pfSense, Synology, HA OS add-on: prints the keys to paste in its UI, then pins + adds.
+#   aihub-enroll --remove ALIAS     drop ALIAS from the inventory and known_hosts (target untouched)
+#   aihub-enroll --list             show the inventory
+set -euo pipefail
+
+SSH_DIR=${AIHUB_SSH_DIR:-/srv/ai/ssh}
+HOSTS=$SSH_DIR/hosts.conf
+KNOWN=$SSH_DIR/known_hosts
+WEBUI_PUB=$SSH_DIR/id_ed25519.pub
+TERM_KEY=$HOME/.ssh/aihub-terminal
+COMPOSE_DIR=${AIHUB_COMPOSE_DIR:-/srv/ai}
+
+die() { echo "aihub-enroll: $*" >&2; exit 1; }
+usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+[ "$(id -u)" -ne 0 ] || die "run as your own user, not root"
+[ -d "$SSH_DIR" ] || die "$SSH_DIR missing (setup.sh creates it)"
+
+has_alias() { [ -f "$HOSTS" ] && grep -qiE "^Host[[:space:]]+(.*[[:space:]])?$1([[:space:]]|$)" "$HOSTS"; }
+
+remove_alias() {
+  local a=$1 tmp
+  has_alias "$a" || die "'$a' is not in $HOSTS"
+  tmp=$(mktemp)
+  # drop the "Host a" block (up to the next Host line or blank line)
+  awk -v a="$a" 'tolower($1)=="host"{skip=($2==a)} skip&&/^[ \t]*$/{skip=0;next} !skip' "$HOSTS" >"$tmp"
+  cat "$tmp" >"$HOSTS"; rm -f "$tmp"
+  [ -f "$KNOWN" ] && ssh-keygen -R "$a" -f "$KNOWN" >/dev/null 2>&1 && rm -f "$KNOWN.old"
+  echo "Removed $a. On the target, remove the two aihub-* lines from the aihub user's authorized_keys"
+  echo "(Linux/Pi: sudo deluser --remove-home aihub; sudo rm -f /etc/sudoers.d/90-aihub)."
+}
+
+case "${1:-}" in
+  ""|-h|--help) usage ;;
+  --list) [ -f "$HOSTS" ] && grep -iE '^(Host|  *(HostName|User|Port))[[:space:]]' "$HOSTS" || echo "(empty)"; exit 0 ;;
+  --remove) [ $# -eq 2 ] || usage 1; remove_alias "$2"; exit 0 ;;
+esac
+
+ALIAS=$1 ADDR=${2:-}; shift 2 || usage 1
+ADMIN=$USER PORT=22 TUSER=aihub MANUAL=0
+while [ $# -gt 0 ]; do
+  case $1 in
+    --admin) ADMIN=$2; shift 2 ;;
+    --port) PORT=$2; shift 2 ;;
+    --user) TUSER=$2; shift 2 ;;
+    --manual) MANUAL=1; shift ;;
+    *) usage 1 ;;
+  esac
+done
+[[ $ALIAS =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$ ]] || die "alias: letters, digits, . _ - only"
+[[ $ADDR =~ ^[A-Za-z0-9.:-]+$ ]] || die "address: IP or hostname"
+[[ $PORT =~ ^[0-9]+$ ]] || die "port: number"
+[[ $TUSER =~ ^[a-z_][a-z0-9_-]*$ ]] || die "user: lowercase name"
+has_alias "$ALIAS" && die "'$ALIAS' is already enrolled (aihub-enroll --remove $ALIAS first)"
+[ -r "$WEBUI_PUB" ] || die "$WEBUI_PUB missing (setup.sh creates it)"
+if [ ! -f "$TERM_KEY" ]; then
+  mkdir -p -m 700 "$HOME/.ssh"
+  ssh-keygen -q -t ed25519 -N '' -C "aihub-terminal@$(hostname)" -f "$TERM_KEY"
+  echo "Created $TERM_KEY"
+fi
+KEYS="$(cat "$WEBUI_PUB")
+$(cat "$TERM_KEY.pub")"
+
+# 1. Put the keys on the target
+if [ "$MANUAL" -eq 1 ]; then
+  echo "Paste these two lines as the authorized SSH keys of user '$TUSER' on $ADDR (docs/13 §3 has the clicks):"
+  echo; echo "$KEYS"; echo
+  read -r -p "Done? [y/N] " a; [[ $a =~ ^[Yy] ]] || die "stopped"
+else
+  echo "Logging in to $ADMIN@$ADDR:$PORT (your password and sudo password may be asked)…"
+  # shellcheck disable=SC2087  # expand KEYS/TUSER locally on purpose
+  REMOTE=$(cat <<EOF
+set -e
+U='$TUSER'
+KEYS='$KEYS'
+if ! id "\$U" >/dev/null 2>&1; then useradd -m -s /bin/bash "\$U"; echo "created user \$U"; fi
+usermod -p '*' "\$U"   # no password login; keys only
+H=\$(getent passwd "\$U" | cut -d: -f6)
+install -d -m 700 -o "\$U" -g "\$(id -gn "\$U")" "\$H/.ssh"
+AK="\$H/.ssh/authorized_keys"; touch "\$AK"
+printf '%s\n' "\$KEYS" | while IFS= read -r k; do grep -qxF "\$k" "\$AK" || echo "\$k" >> "\$AK"; done
+chown "\$U:\$(id -gn "\$U")" "\$AK"; chmod 600 "\$AK"
+read -r -p "Give \$U passwordless sudo on \$(hostname)? [y/N] " a </dev/tty
+if [[ \$a =~ ^[Yy] ]] && ! command -v sudo >/dev/null; then   # Proxmox and minimal Debian ship without sudo
+  read -r -p "sudo is not installed on \$(hostname). Install it now (apt-get install -y sudo)? [y/N] " b </dev/tty
+  if [[ \$b =~ ^[Yy] ]]; then apt-get install -y sudo >/dev/null && echo "installed sudo"; else a=n; echo "no sudo for \$U"; fi
+fi
+if [[ \$a =~ ^[Yy] ]]; then
+  install -d -m 750 /etc/sudoers.d
+  echo "\$U ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-aihub; chmod 440 /etc/sudoers.d/90-aihub
+  visudo -cf /etc/sudoers.d/90-aihub >/dev/null || { rm -f /etc/sudoers.d/90-aihub; echo "sudoers check failed; no sudo"; }
+  echo "sudo: yes"
+else
+  rm -f /etc/sudoers.d/90-aihub; echo "sudo: no"
+fi
+echo "HOSTKEY \$(ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub | cut -d' ' -f2)"
+EOF
+)
+  B64=$(printf '%s' "$REMOTE" | base64 -w0)
+  ssh -t -p "$PORT" -o StrictHostKeyChecking=accept-new "$ADMIN@$ADDR" \
+    "echo $B64 | base64 -d > /tmp/.aihub-enroll && if [ \$(id -u) -eq 0 ]; then bash /tmp/.aihub-enroll; else sudo bash /tmp/.aihub-enroll; fi; rc=\$?; rm -f /tmp/.aihub-enroll; exit \$rc" \
+    | tee /dev/stderr | tr -d '\r' | sed -n 's/^HOSTKEY //p' > "$SSH_DIR/.enroll-fp" || die "remote setup failed"
+fi
+
+# 2. Pin the host key (ed25519), keyed by the alias so an IP change only means editing HostName
+SCAN=$(ssh-keyscan -T 5 -p "$PORT" -t ed25519 "$ADDR" 2>/dev/null | grep -v '^#' | head -n 1)
+[ -n "$SCAN" ] || die "no ed25519 host key from $ADDR:$PORT (is SSH on?)"
+FP=$(printf '%s\n' "$SCAN" | ssh-keygen -lf - | cut -d' ' -f2)
+WANT=$(cat "$SSH_DIR/.enroll-fp" 2>/dev/null || true); rm -f "$SSH_DIR/.enroll-fp"
+echo "Host key of $ADDR: $FP"
+if [ -n "$WANT" ]; then
+  [ "$FP" = "$WANT" ] || die "host key mismatch: target says $WANT, network says $FP. Not enrolled."
+  echo "Matches what the target reported."
+else
+  read -r -p "Accept this host key for '$ALIAS'? (compare it in the device's UI or console if you can) [y/N] " a
+  [[ $a =~ ^[Yy] ]] || die "stopped"
+fi
+echo "$ALIAS $(printf '%s\n' "$SCAN" | cut -d' ' -f2-)" >> "$KNOWN"
+
+# 3. Inventory entry (shared by the sidecar and your own ssh)
+[ -s "$HOSTS" ] && [ -n "$(tail -c1 "$HOSTS")" ] && echo >> "$HOSTS"
+cat >> "$HOSTS" <<EOF
+Host $ALIAS
+  HostName $ADDR
+  Port $PORT
+  User $TUSER
+  HostKeyAlias $ALIAS
+
+EOF
+chmod 644 "$HOSTS" "$KNOWN"
+
+# 4. Test both keys
+echo "Testing your terminal key…"
+if ssh -F "$HOSTS" -i "$TERM_KEY" -o IdentitiesOnly=yes -o BatchMode=yes -o UserKnownHostsFile="$KNOWN" \
+     -o StrictHostKeyChecking=yes "$ALIAS" 'echo "  ok: $(id -un)@$(hostname)"'; then :; else
+  echo "  FAILED (fix, then: ssh $ALIAS)"; fi
+echo "Testing the sidecar key…"
+if ! docker compose --project-directory "$COMPOSE_DIR" ps -q aihub-ssh >/dev/null 2>&1; then
+  echo "  not tested (no docker access or sidecar down): sudo docker compose --project-directory $COMPOSE_DIR exec aihub-ssh python3 /app/app.py test $ALIAS"
+elif docker compose --project-directory "$COMPOSE_DIR" exec -T aihub-ssh python3 /app/app.py test "$ALIAS" </dev/null 2>&1 | sed 's/^/  /'; then :; else
+  echo "  FAILED (same cause as above, usually; retest: docker compose --project-directory $COMPOSE_DIR exec aihub-ssh python3 /app/app.py test $ALIAS)"
+fi
+echo "Enrolled $ALIAS."

@@ -12,6 +12,10 @@ step() { echo; printf '═%.0s' {1..70}; echo; echo "  $*"; printf '═%.0s' {1.
 
 step "1/5  Containers"
 ./update-image.sh --all
+if docker compose config --services | grep -qx aihub-ssh; then   # built locally (docs/13): refresh its base image
+  echo "-> rebuilding aihub-ssh"
+  docker compose build --pull aihub-ssh && docker compose up -d aihub-ssh
+fi
 
 step "2/5  Ollama models"
 if [[ $(ask "Re-pull Ollama models? Only changed layers download; gpt-oss:120b can be large. [y/N]") == y ]]; then

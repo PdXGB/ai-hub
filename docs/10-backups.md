@@ -33,10 +33,10 @@ Skipped: the raw Postgres data folders (the dumps replace them) and everything u
 [`aihub-backup.timer`](../systemd/aihub-backup.timer): daily at 02:30, `Persistent=true` (a run missed while the server was off happens at next boot).
 
 - **Local:** keeps 7 days; older dated folders are deleted.
-- **NAS:** `rsync -rt --delete` mirrors `/srv/backup/` to `/mnt/nas/aihub/`, so the NAS also holds the last 7 days. If the share isn't reachable, the run still succeeds locally and logs a warning. With `BACKUP_AGE_RECIPIENT` set, the NAS gets age-encrypted copies instead ([§3a](#3a-encrypting-the-nas-copy)).
+- **NAS:** `rsync -rt --delete` mirrors `/srv/backup/` to `NAS_BACKUP_DIR` from `/etc/aihub-mon.env` (here `/mnt/nas/aihub`), so the NAS also holds the last 7 days. The path isn't in the script, so the repo file installs as-is. It copies only if that folder is on a mounted share (not on `/` or the backup drive, not an automount that didn't mount), so a dropped share never fills a local disk. If the share isn't reachable, the run still succeeds locally and logs `WARNING: NAS not reachable, local backup only: <folder>: <reason>`. Empty or unset `NAS_BACKUP_DIR` = local only (`NAS copy skipped: …`). With `BACKUP_AGE_RECIPIENT` set, the NAS gets age-encrypted copies instead ([§3a](#3a-encrypting-the-nas-copy)).
 
 ```bash
-sudo systemctl start aihub-backup && journalctl -u aihub-backup -n 5    # "Backup OK: /srv/backup/… (size)" and "Copied to NAS"
+sudo systemctl start aihub-backup && journalctl -u aihub-backup -n 5    # "Backup OK: /srv/backup/… (size)" and "Copied to NAS: <folder> (mount …)"
 systemctl list-timers aihub-backup.timer
 ```
 

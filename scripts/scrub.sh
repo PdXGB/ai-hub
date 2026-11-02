@@ -34,7 +34,7 @@ if [ -e "$OUT" ]; then
     find "$OUT" -mindepth 1 -delete
   fi
 fi
-mkdir -p "$OUT"/{compose/litellm,compose/searxng,systemd,scripts,host/bin,host/samba,home-assistant/voice-test}
+mkdir -p "$OUT"/{compose/litellm,compose/searxng,systemd,scripts,host/bin,host/samba,home-assistant/voice-test,ssh-runner}
 touch "$OUT/$MARK"
 
 cp_if() { if [ -e "$1" ]; then cp -a "$1" "$2" && echo "  + $1"; else echo "  - (missing) $1"; fi; }
@@ -60,7 +60,7 @@ for d in comfyui.service.d nvidia-persistenced.service.d; do
     mkdir -p "$OUT/systemd/$d"; cp -a /etc/systemd/system/$d/*.conf "$OUT/systemd/$d/" && echo "  + /etc/systemd/system/$d/"
   fi
 done
-for s in aihub-backup aihub-brief aihub-gpu-power aihub-library-index aihub-mon aihub-restore-drill comfyui-idle-free; do
+for s in aihub-backup aihub-brief aihub-enroll aihub-gpu-power aihub-library-index aihub-mon aihub-restore-drill comfyui-idle-free; do
   [ -e "/usr/local/bin/$s" ] && cp_if "/usr/local/bin/$s" "$OUT/host/bin/$s"
 done
 cp_if /etc/docker/daemon.json                 "$OUT/host/docker-daemon.json"
@@ -71,10 +71,12 @@ cp_if "$USER_HOME/aihub-gpu-audit.sh"         "$OUT/scripts/aihub-gpu-audit.sh"
 cp_if "$AI/update-image.sh"                   "$OUT/scripts/update-image.sh"
 cp_if "$AI/monthly-update.sh"                 "$OUT/scripts/monthly-update.sh"
 cp_if "$AI/voice-test/voice-test.py"          "$OUT/scripts/voice-test.py"
+cp_if "$AI/ssh-runner/app.py"                 "$OUT/ssh-runner/app.py"
+cp_if "$AI/ssh-runner/Dockerfile"             "$OUT/ssh-runner/Dockerfile"
 cp_if "$AI/voice-test/cases.json"             "$OUT/home-assistant/voice-test/cases.json"
 cp_if "$AI/voice-test/extended-openai-prompt-template.txt" "$OUT/home-assistant/extended-openai-prompt-template.txt"
 # Never collected: /root/.config/mosquitto_pub (broker login), .env values,
-# SMB credential files. They are only READ below so their values get scrubbed.
+# SMB credential files, /srv/ai/ssh (Remote Shell key, inventory with LAN addresses, audit log). They are only READ below so their values get scrubbed.
 
 # .env variable names only (compare against the documented compose/.env.example)
 if [ -f "$AI/.env" ]; then

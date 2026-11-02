@@ -10,10 +10,62 @@ Working rules
 - Live configs come from the server via `scripts/scrub.sh`, never rewritten from memory.
 - Raw notes and every file a chat produced go in `_handoffs/`: `chat-NN-<topic>.md` plus `_handoffs/files/`. That folder is its own **private** repo (`_handoffs`) and is gitignored by this public one.
 - A chat may be closed only after it has a row in the Chat migration log below, marked complete.
+- New ideas and tasks always go in as `- [ ]` (unchecked), both in the Checklist below and in their section. Tick `[x]` only when done and verified.
 
 _Last updated: 2026-10-27 (chats 10–15 complete). Public repo: PdXGB/ai-hub; private notes: PdXGB/_handoffs._
 
 ---
+
+## Checklist
+
+Short index of the detailed sections below; each line points to one item there. Update both when an item changes.
+
+**Still to do**
+- [ ] Imports from other AIs: run the external-AI handoff prompt in each non-Claude chat that worked on the server
+- [ ] Morning brief (`aihub-brief`): review, decide, install
+- [ ] Photo-to-video n8n form: rebuild for the Cloudflare 100 s limit
+- [ ] **PdXGB (HA):** re-paste automation 6 (+ card), check 58 entities
+- [ ] Open WebUI images via ComfyUI (recommended)
+- [ ] "Ask the build" knowledge collection
+- [ ] Cloud spend alert (HA automation)
+- [ ] Camera snapshot descriptions
+- [ ] Video upgrades (ComfyUI)
+- [ ] Kokoro TTS for Open WebUI
+- [ ] Weekly server report
+- [ ] Frigate on the HA GPU
+- [ ] Grafana dashboards
+- [ ] "How's the server?" voice answer
+- [ ] ChatGPT in the mix (OpenAI route)
+- [ ] Make the assistant as capable as Claude on this setup: load the home-network context and build docs into its knowledge, finish "Ask the build" and library phase 3 (2026-11-02)
+- [ ] Tune the assistant to ask for help more (2026-11-02). Tested (chat 19): the current prompt never escalated on 4 network/HA design and "fix didn't work" cases; a rewritten routing rule didn't either; an explicit nudge in the user message worked about 1 time in 3. Prompting alone won't do it: build a deterministic review step (Open WebUI filter that sends matching requests or the draft to `claude`), then install the rewritten prompt with it
+- [ ] Attach the library knowledge collections to the assistant model (it has none attached, so it never searches the library) (2026-11-02)
+- [ ] Remote Shell: document and verify SSH access both ways (Claude desktop → server; server → LAN hosts); enroll NAS + HA; reconcile the `[auto-approved]` entries in `audit.log` with the confirm-every-command rule (2026-11-02)
+- [ ] Drive-home notes → library
+- [ ] Hardening package (another chat, in progress)
+- [ ] Repos on the server: read-only clones, then add them to `aihub-backup`
+- [ ] **PdXGB:** retire the old NAS copy of the library
+- [ ] AI library: local-model wrap-ups; phase 3 (other AIs' exports); later, editing from the server
+- [ ] memtest86+ overnight
+- [ ] Monthly routine: `monthly-update.sh` + acknowledge the alert
+- [ ] HA voice accuracy on qwen3:8b: **PdXGB** paste the revised template, confirm EOC version/options; fix the last 3 test failures. Chat 19: baseline re-run 20/23; three more template variants each produced UNSAFE calls (garage opened, well pump off). Keep the current template; next try a different model on the HA GPU
+- [ ] Later cleanup on the server (chats 09–16 backup folders and copies)
+- [ ] Optional: Ask Model `max_tokens`; VPN range in `ALLOWED_NETS`
+- [ ] Remote Shell (chat 18): installed on the server; **PdXGB** paste the tool + enroll machines (Pis, NAS, pfSense, HA OS add-on)
+
+**Done** (details in the sections below and the migration log)
+- [x] Build: hardware, Ubuntu + NVIDIA, Docker stack, HA, ComfyUI, tunnel (chat 01)
+- [x] Second GPU (2060) for HA voice + Whisper; per-card power limits; `pcie_aspm=off` required (chats 02, 09, 12)
+- [x] Public repo + clean history + neutral `aihub` rename (chats 03, 05, 09)
+- [x] scrub.sh, setup.sh, leak/link checks (chats 03, 07, 08)
+- [x] Assistant prompt + `ask_model` routing; update scripts (chat 04)
+- [x] aihub-mon → HA device "AIHub", alerts, card (chats 04, 07, 13)
+- [x] Docs 01–12 + troubleshooting (chats 07, 08, 15)
+- [x] Nightly backups + NAS copy, tested restore, monthly restore drill (chats 07, 09, 13)
+- [x] `aihub-backup` reads the NAS folder from `NAS_BACKUP_DIR`; repo file installs as-is (chat 16)
+- [x] HA voice regression test (chat 14)
+- [x] AI library phase 1 (Samba) + phase 2 (Open WebUI collections) (chat 15)
+- [x] Direct server access for Claude sessions over SSH (chat 10)
+- [x] Feature ideas ranked (chat 11)
 
 ## Chat migration log
 
@@ -36,6 +88,8 @@ Each chat adds its row when it has: (1) saved its handoff and all files to `_han
 | 13 | Monthly restore drill: `aihub-restore-drill` + timer, aihub-mon `Restore test` sensors (58 entities) + narrow rogue-container exemption, alert 6 extended, installed + first live run OK, scrub `=`; chat 09 leftover volume removed; docs/09, docs/10 §4, README intro rewritten (homestead / local-first) | `chat-13-restore-drill.md` | `files/chat-13-restore-drill/`: drafts, install plan, server scrub hashes, pre-chat13 copies, sandbox (in `_scratch/`) | Yes | **Yes** |
 | 14 | HA voice regression test: `scripts/voice-test.py` + `home-assistant/voice-test/cases.json` (23 cases, EOC 2.0.x request format), `voice-test` LiteLLM key, installed in `/srv/ai/voice-test/` (setup.sh, scrub `=`); first results 15/23 → 20/23 with a revised prompt template; Whisper timed at 170 W; NAS copy fixed (chat 12 had installed the scrubbed `/mnt/nas` path); docs/05 §9, docs/03, docs/10, README | `chat-14-voice-regression.md` | `files/chat-14-voice-regression/`: sandbox stub, run results, template variants, Whisper timing script + WAV, server scrub hashes, pre-chat14 copies | Yes | **Yes** |
 | 15 | AI library phase 1: `/srv/library` (work, personal, `_shared/`), Samba shares (SMB3, encrypted, LAN only), ufw 445, nightly backup; existing library moved in and split; setup.sh `LIBRARY_DIR`, `host/samba/smb.conf`, scrub, docs/12, README | `chat-15-library.md` | `files/chat-15-library/`: plan, restructure + shared-edit scripts, install script, live smb.conf, scrub hashes, pre-chat15 copies | Yes | **Yes** |
+| 16 | `aihub-backup` NAS path: reads `NAS_BACKUP_DIR` from `/etc/aihub-mon.env`, refuses non-share targets, logs folder + mount; installed (live == repo by plain hash), manual run + restore drill OK; env file 600; docs/10; TODO Checklist section + "new ideas = `[ ]`" rule | `chat-16-backup-nas-path.md` | `files/chat-16-backup-nas-path/`: script draft, sandbox, server scrub hashes, pre-chat16 copies, next-chat prompt | Yes | **Yes** |
+| 18 | Remote Shell: `aihub-ssh` sidecar (`ssh-runner/`), Open WebUI `remote_shell.py` (confirm-everything dialog, admin-only, cloud output masking), `aihub-enroll` (per-host sudo prompt, host-key check), `install-aichat.sh`; compose service + networks, `.env` vars, setup.sh, scrub, backup, update-image SKIP, monthly-update rebuild; docs/13, README. Sandbox-tested, installed on the server, `terminal` key + aichat set up; enrollment is PdXGB's | `chat-18-remote-shell.md` | `files/chat-18-remote-shell/`: sandbox test notes | Yes | **Yes** |
 
 ## Done
 
@@ -192,6 +246,12 @@ _Chat 09 verified the new `.git` before publishing: 1 commit ("Initial commit", 
 - [ ] **"How's the server?" voice answer:** one template sensor summarizing aihub-mon, exposed to Assist, in the prompt's fast-changing section (chat 11)
 - [ ] **ChatGPT in the mix:** PdXGB now has a ChatGPT account. Add an OpenAI route to LiteLLM + `ask_model` (needs a separate OpenAI **API** key; a ChatGPT Plus subscription doesn't include API access), fit it under the $50/month cloud cap, update routing rules (docs/06), and run the ChatGPT export through `other_exports_to_md.py` into the library (2026-10-28)
 - [ ] **Drive-home notes → library:** Grok writes a Gmail draft each evening ("<Month D, YYYY> Car Ride Home", markdown body: journaling, venting, project brain dumps). Ingest it, split by subject, file into the library per `_shared/README.md` (tag `· grok`), raw copy in `personal/_raw/grok/`. Decided: n8n + `local-fast` on the server, vents kept full text in a private journal, draft deleted after a verified file, Google Drive journal moves into the library. Design + next-chat prompt: private notes `files/chat-17-drive-notes/` (2026-10-28)
+- [ ] **Remote Shell (chat 18):** SSH + scp to LAN machines (NAS, pfSense, HA host, Linux boxes, every Raspberry Pi). Two ways in: the Open WebUI tool `open-webui/remote_shell.py` via the `aihub-ssh` sidecar (`ssh-runner/`), and `aichat -e` in a terminal on the server (`scripts/install-aichat.sh`). PdXGB's choices: confirm every command and transfer; local + cloud models (cloud output masked); sudo decided per host at enroll. Written and sandbox-tested (sidecar against a real sshd: run/fetch/send, refusals, timeout, output cap, legacy-scp retry; tool with mocked dialogs; aihub-enroll full + `--manual` + `--remove`; setup.sh `--root`). [docs/13](docs/13-remote-shell.md)
+  - [x] Installed on the server (chat 18; backup in `/root/chat18-backup-*`): compose merged by edit (open-webui `networks`, aihub-ssh service, networks block), `ssh-runner/` built, `/srv/ai/ssh` (key `aihub-webui@<host>`, empty inventory), `/srv/transfer`, `.env` token/UID/GID, repo `update-image.sh`/`monthly-update.sh`/`aihub-backup` installed (live == HEAD before), `aihub-enroll` in /usr/local/bin. Verified: container healthy, uid 1000, Open WebUI reaches it with the token (401 without), n8n can't resolve it, LAN SSH reachable (NAS + gateway port 22), `update-image.sh` skips/refuses it, aihub-mon baseline accepted (All clear, 12 containers; new HA entity "Container aihub-ssh")
+  - [ ] **PdXGB:** paste the tool in Open WebUI, set `runner_token`, keep it private, attach it to the assistant (+ any cloud models)
+  - [ ] Enroll hosts: Pis/Linux boxes with `aihub-enroll`; NAS, pfSense, HA host with `--manual` (docs/13 §3)
+  - [x] `terminal` LiteLLM key (local-fast, local-deep, claude, gemini; $5 / 30 d) + `install-aichat.sh` for PdXGB's user: aichat 0.30.0, `aichat -e` returns a clean command (chat 18)
+  - [ ] First live test: read-only command on each host, a NAS → Pi copy, a declined dialog; check `audit.log`
 
 ## Future: repos and chat archive on the server (planned in chat 10; the chat archive became the AI library, chat 15)
 
@@ -234,6 +294,8 @@ _Chat 09 verified the new `.git` before publishing: 1 commit ("Initial commit", 
 - [ ] Later cleanup on the server: the migration backup folder in `/root` and the retired health-script folder (after a few weeks), old staging folders, the unpacked repo copy and tarball in the home folder, the chat 07 `nvidia-power-limit.service.pre-gpuenv` backup in `/etc/systemd/system`; the chat 13 backup folder in `/root` and `/home/claude/chat13/`; the chat 15 backup folder in `/root` and `/home/claude/chat15/` (holds a copy of the library)
 - [x] **Per-card power limits (chat 12):** `gpu.env` has `GPU_<ROLE>_UUID` + `GPU_<ROLE>_POWER_LIMIT` per card (empty = stock); `nvidia-power-limit.service` runs the new `host/bin/aihub-gpu-power` (applies each set limit by UUID, skips empty/duplicate, tries every card); `setup.sh` asks per card, suggests 93% of stock rounded to 5 W, refuses values outside min/max, re-runs only add missing keys; scrub.sh and aihub-backup include the script. Sandbox-tested (fresh, re-run, gap-fill, single GPU, out of range, interactive; wrapper with a stub nvidia-smi). 2060 benchmarked at 184/170/155 W (170 W: <1% slower, ~15 W less at peak) → **170 W** (PdXGB). Installed on the server with backup; reapplies after a restart; baseline accepted; scrub: every collected file `=` except the 3 expected. docs/01, 02, 04 §1 + after-install table, 10, troubleshooting, README updated
 - [ ] Later cleanup (chat 12): the chat 12 backup folder in `/root` and the copied files in the `claude` user's home on the server
-- [ ] **`aihub-backup` NAS path (found in chat 14):** the script hardcodes the NAS mount, and the repo copy carries the scrubbed `/mnt/nas`. Installing the repo file unchanged (chat 12) silently stopped the nightly NAS copy for two nights ("NAS not reachable"); fixed live in chat 14. Permanent fix: read `NAS_BACKUP_DIR` from `/etc/aihub-mon.env` (already set) so the repo file installs as-is; docs/10. Until then, after installing `aihub-backup` from the repo, put the real mount path back
+- [x] **`aihub-backup` NAS path (found in chat 14; fixed chat 16):** the script now reads `NAS_BACKUP_DIR` from `/etc/aihub-mon.env` (empty/unset = local only, logged), copies only if that folder is on a mounted share (never onto `/` or the backup drive), and logs the folder and mount it used. No path in the script, so the repo file installs as-is (live == repo by plain hash). Sandbox 12/12; installed with backup; manual run copied to the NAS, `backups_ok` ON, restore drill `nas match`; `/etc/aihub-mon.env` now 600 (as setup.sh creates it). aihub-mon and the drill already read the same key. docs/10
 - [ ] Later cleanup (chat 14): the chat 14 backup folder in `/root`, `/home/claude/chat14/`, `/tmp/vt-*` on the server
+- [ ] Later cleanup (chat 16): the chat 16 backup folder in `/root` and `/home/claude/chat16/` on the server
+- [ ] Later cleanup (chat 18): the chat 18 backup folder in `/root` and `/home/claude/chat18/` on the server
 - [ ] Optional: Ask Model `max_tokens` 4096 -> 8192 if Grok answers get cut off; add a VPN range to aihub-mon `ALLOWED_NETS` if SSHing in remotely
