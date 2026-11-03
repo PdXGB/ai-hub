@@ -39,7 +39,7 @@ Short index of the detailed sections below; each line points to one item there. 
 - [ ] Make the assistant as capable as Claude on this setup: load the home-network context and build docs into its knowledge, finish "Ask the build" and library phase 3 (2026-11-02)
 - [ ] Tune the assistant to ask for help more (2026-11-02). Tested (chat 19): the current prompt never escalated on 4 network/HA design and "fix didn't work" cases; a rewritten routing rule didn't either; an explicit nudge in the user message worked about 1 time in 3. Prompting alone won't do it: build a deterministic review step (Open WebUI filter that sends matching requests or the draft to `claude`), then install the rewritten prompt with it
 - [ ] Attach the library knowledge collections to the assistant model (it has none attached, so it never searches the library) (2026-11-02)
-- [ ] Remote Shell: document and verify SSH access both ways (Claude desktop → server; server → LAN hosts); enroll NAS + HA; reconcile the `[auto-approved]` entries in `audit.log` with the confirm-every-command rule (2026-11-02)
+- [x] Remote Shell: SSH access documented and verified both ways (docs/13 §5a); NAS (`aihub`, administrators group) and HA (Advanced SSH add-on, user root) enrolled; pfSense `aihub` has sudo; `[auto-approved]` entries were one proxmox job with the valve on, now off (chat 19, 2026-11-02)
 - [ ] Drive-home notes → library
 - [ ] Hardening package (another chat, in progress)
 - [ ] Repos on the server: read-only clones, then add them to `aihub-backup`
